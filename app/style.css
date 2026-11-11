@@ -313,3 +313,4 @@ button.vrow:hover { background: var(--raise); color: var(--text); }
 .vol input { accent-color: var(--accent); width: 100%; margin: 0; }
 .hint.center .btn { margin-top: 12px; }
 .form-err.info { color: var(--text); }
+.dl { display: block; margin-top: 14px; }

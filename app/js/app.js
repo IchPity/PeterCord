@@ -3,6 +3,7 @@ import {
   h, icon, iconBtn, avatar, initials, toast, fail, popover, closePopover, menu, modal, closeModal, hasModal, ask, promptText,
   emojiPicker, sound, clock, dayKey, dayLabel, size, markdown, STATUS,
 } from './ui.js';
+import { DOWNLOAD_URL } from './config.js';
 import { voice, join, leave, onRtc, onList, toggleMute, toggleDeaf, toggleScreen, setOutput } from './voice.js';
 
 const root = document.getElementById('root');
@@ -120,7 +121,8 @@ async function showAuth(note) {
     h('label', { class: 'field' }, h('span', null, 'Passwort'), pass),
     fCode, err, submit, swap,
     h('details', { class: 'adv' }, h('summary', null, 'Anderen Server verwenden'),
-      h('label', { class: 'field' }, h('span', null, 'Server-Adresse'), server)));
+      h('label', { class: 'field' }, h('span', null, 'Server-Adresse'), server)),
+    !isApp && h('a', { class: 'link dl', href: DOWNLOAD_URL, target: '_blank', rel: 'noopener' }, 'PeterCord für Windows herunterladen'));
   function paint() {
     const reg = mode === 'register';
     title.textContent = reg ? 'Konto erstellen' : 'Schön, dass du da bist';
@@ -1072,6 +1074,9 @@ async function settingsDialog() {
       h('label', { class: 'check' }, auto, 'PeterCord mit Windows starten (unauffällig im Infobereich)'),
       h('p', { class: 'sub' }, 'Das Schließen-Kreuz versteckt PeterCord nur. Ganz beenden geht per Rechtsklick auf das Symbol im Infobereich.'),
       h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => checkUpdate('manual') }, 'Nach Updates suchen'), version)),
+    !isApp && h('section', null, h('h3', null, 'Desktop-App'),
+      h('p', { class: 'sub' }, 'Als Windows-App liegt PeterCord im Infobereich und meldet neue Nachrichten zuverlässig.'),
+      h('a', { class: 'btn primary', href: DOWNLOAD_URL, target: '_blank', rel: 'noopener' }, 'Für Windows herunterladen')),
     !isApp && version,
   ], { wide: true });
 }
