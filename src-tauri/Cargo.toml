@@ -1,0 +1,31 @@
+[package]
+name = "petercord"
+version = "0.1.0" # nur intern – die Versionsnummer der App steht in ../package.json
+description = "PeterCord – schlanker Chat für Freunde"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-updater = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Nur für den Speicher-Sparmodus im Tray (dieselben Versionen, die Tauri selbst nutzt).
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
+
+# Kleine, sparsame Programmdatei.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

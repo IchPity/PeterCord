@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "petercord",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  // Der Worker liefert zusätzlich die Web-Version der App aus (Ordner ../app).
+  "assets": { "directory": "../app", "binding": "ASSETS" },
+  "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "Hub" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }],
+  // Eigene Fehlermeldungen landen im Log, einzelne Anfragen (wer wann was aufruft) aber nicht.
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } }
+}

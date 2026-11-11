@@ -1,0 +1,53 @@
+# Baut den Windows-Installer und veröffentlicht ihn als GitHub-Release, sobald ein Tag wie "v0.2.0" gepusht wird.
+# Auslösen am einfachsten mit:  npm run release 0.2.0
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # Baut die App, signiert das Update und lädt Installer + latest.json ins Release.
+      # latest.json ist die Datei, die jede installierte App abfragt, um neue Versionen zu finden.
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: PeterCord v__VERSION__
+          releaseBody: |
+            **Installieren:** `PeterCord_x.y.z_x64-setup.exe` unten herunterladen und ausführen.
+            Die Anleitung steht in der [README](https://github.com/IchPity/PeterCord#readme).
+
+            Wer PeterCord schon installiert hat, muss nichts tun – die App aktualisiert sich beim nächsten Start von selbst.
+          releaseDraft: false
+          prerelease: false
+          generateReleaseNotes: true
