@@ -9,7 +9,7 @@ Für Peter (und alle, die mitbauen wollen). Die Anleitung für Nutzer steht in d
 | `app/` | Die Oberfläche: schlichtes HTML, CSS und JavaScript ohne Framework und ohne Build-Schritt. |
 | `src-tauri/` | Die Desktop-Hülle ([Tauri](https://tauri.app), Rust): Fenster, Tray-Symbol, Benachrichtigungen, Autostart, Auto-Update. |
 | `server/` | Der Server: ein Cloudflare Worker mit einem Durable Object. Dort liegen Datenbank (SQLite) und alle WebSocket-Verbindungen. |
-| `scripts/` | Helfer zum Veröffentlichen und zum Zurücksetzen von Passwörtern. |
+| `scripts/` | Helfer zum Veröffentlichen und zum Verwalten der Konten. |
 | `.github/workflows/release.yml` | Baut bei jedem Versions-Tag den Installer und legt das GitHub-Release an. |
 
 Warum so sparsam? Tauri nutzt das in Windows eingebaute WebView2 statt einen eigenen Browser mitzuliefern
@@ -46,18 +46,20 @@ Beide liegen in `C:\Users\<du>\.tauri\` und **nicht** im Repository:
 - `petercord.key` – der Schlüssel, mit dem Updates signiert werden. Er ist als Secret `TAURI_SIGNING_PRIVATE_KEY`
   bei GitHub hinterlegt. Geht er verloren, können bereits installierte Apps keine Updates mehr annehmen
   (alle müssten einmal von Hand neu installieren). Kopier ihn an einen sicheren Ort.
-- `petercord-admin.key` – der Schlüssel für `npm run passwort`. Er ist als Secret `ADMIN_KEY` beim Worker hinterlegt.
+- `petercord-admin.key` – der Schlüssel für die Verwaltungsbefehle unten (`npm run nutzer` usw.). Er ist als Secret `ADMIN_KEY` beim Worker hinterlegt.
   Einen neuen einrichten: eine lange Zufallszeichenfolge in die Datei schreiben und im Ordner `server/`
   `npx wrangler secret put ADMIN_KEY` ausführen.
 
-## Passwort eines Freundes zurücksetzen
+## Konten verwalten
 
 ```
-npm run passwort -- benutzername neues-passwort
+npm run nutzer                                    # alle Konten auflisten
+npm run passwort -- benutzername neues-passwort   # Passwort neu setzen, wenn es jemand vergessen hat
+npm run konto-loeschen -- benutzername            # ein Konto entfernen (zum Beispiel einen Fremden)
 ```
 
-Das meldet das Konto auf allen Geräten ab; danach kann sich die Person mit dem neuen Passwort anmelden und es
-in den Einstellungen selbst ändern.
+Ein neues Passwort meldet das Konto auf allen Geräten ab; danach kann sich die Person damit anmelden und es
+in den Einstellungen selbst ändern. Von einem gelöschten Konto bleiben nur die Nachrichten stehen, als „Gelöschtes Konto“.
 
 ## Optionale Server-Einstellungen
 
@@ -66,7 +68,7 @@ Alle werden im Ordner `server/` mit `npx wrangler secret put NAME` gesetzt:
 - **`REGISTER_CODE`** – Zugangscode für neue Konten. Ohne ihn kann sich jeder registrieren, der die Server-Adresse
   kennt (sie steht in diesem öffentlichen Repository). Schreiben kann man Fremden trotzdem nicht: Dafür braucht es
   eine angenommene Freundschaftsanfrage oder einen Einladungscode. Mit gesetztem Code fragt die App beim
-  Registrieren danach.
+  Registrieren danach. Wer sich angemeldet hat, zeigt `npm run nutzer`.
 - **`TURN_KEY_ID` und `TURN_KEY_TOKEN`** – macht Anrufe auch hinter strengen Firewalls möglich. Im
   [Cloudflare-Dashboard](https://dash.cloudflare.com/?to=/:account/calls) unter *Realtime → TURN Server* einen Schlüssel
   anlegen und „Turn Token ID“ sowie „API Token“ als diese beiden Secrets hinterlegen. Ohne sie nutzt PeterCord nur

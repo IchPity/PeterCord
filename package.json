@@ -8,7 +8,9 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "release": "node scripts/release.mjs",
-    "passwort": "node scripts/passwort.mjs",
+    "nutzer": "node scripts/admin.mjs nutzer",
+    "passwort": "node scripts/admin.mjs passwort",
+    "konto-loeschen": "node scripts/admin.mjs loeschen",
     "deploy:server": "npm --prefix server install && npm --prefix server run deploy"
   },
   "devDependencies": {

@@ -5,20 +5,22 @@
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-const run = (cmd) => execSync(cmd, { stdio: 'inherit' });
-const out = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim();
 const stop = (msg) => { console.error('\n✖ ' + msg + '\n'); process.exit(1); };
+const run = (cmd) => { try { execSync(cmd, { stdio: 'inherit' }); } catch { stop('Dieser Schritt ist fehlgeschlagen: ' + cmd); } };
+const out = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim();
+const current = () => JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 const arg = process.argv[2];
 if (!arg || !/^(patch|minor|major|\d+\.\d+\.\d+)$/.test(arg)) {
-  stop('Welche Version? Beispiel: npm run release 0.2.0   (oder patch, minor, major)');
+  stop(`Welche Version? Beispiel: npm run release 0.2.0   (oder patch, minor, major). Aktuell ist ${current()}.`);
 }
+if (arg === current()) stop(`${arg} ist schon die aktuelle Version. Nimm eine höhere Nummer.`);
 if (out('git status --porcelain')) stop('Es gibt noch nicht committete Änderungen. Erst committen (git add -A && git commit -m "…"), dann veröffentlichen.');
 const branch = out('git rev-parse --abbrev-ref HEAD');
 if (branch !== 'main') stop(`Du bist auf dem Branch "${branch}". Releases gehen nur von "main" aus.`);
 
 run(`npm version ${arg} --no-git-tag-version`);
-const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+const version = current();
 const tag = 'v' + version;
 if (out(`git tag -l ${tag}`)) {
   run('git checkout -- package.json package-lock.json');

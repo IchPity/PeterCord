@@ -112,7 +112,7 @@ export class Hub extends DurableObject {
         if (url.pathname === '/api/login') return await this.login(req);
         if (url.pathname === '/api/logout') return await this.logout(req);
         if (url.pathname === '/api/upload') return await this.upload(req, url);
-        if (url.pathname === '/api/admin/password') return await this.adminPassword(req);
+        if (url.pathname.startsWith('/api/admin/')) return await this.admin(req, url.pathname.slice(11));
       }
       return json({ err: 'Nicht gefunden' }, 404);
     } catch (e) {
@@ -155,23 +155,38 @@ export class Hub extends DurableObject {
     return json({ ok: true });
   }
 
-  // Passwort zurücksetzen, wenn es jemand vergessen hat. Geht nur mit dem Admin-Schlüssel
-  // (Worker-Secret ADMIN_KEY) – siehe "npm run passwort" in ENTWICKLUNG.md.
-  async adminPassword(req) {
+  // Verwaltung für den Betreiber: Konten auflisten, Passwort neu setzen, Konto löschen. Geht nur mit dem
+  // Admin-Schlüssel (Worker-Secret ADMIN_KEY) – siehe "npm run nutzer / passwort / konto-loeschen" in ENTWICKLUNG.md.
+  async admin(req, action) {
     const ip = req.headers.get('CF-Connecting-IP') || '?';
-    if (!this.limit('admin:' + ip, 10, 600e3)) throw new Err('Zu viele Versuche. Warte ein paar Minuten.');
+    if (!this.limit('admin:' + ip, 20, 600e3)) throw new Err('Zu viele Versuche. Warte ein paar Minuten.');
     const key = this.env.ADMIN_KEY || '';
     const given = (req.headers.get('Authorization') || '').replace(/^Bearer /, '');
     if (key.length < 20 || (await sha256(given)) !== (await sha256(key))) return json({ err: 'Nicht erlaubt.' }, 403);
-    const b = await req.json();
-    const u = this.get('SELECT id FROM users WHERE username=?', str(b.username, 40));
+    const b = await req.json().catch(() => ({}));
+    if (action === 'users') {
+      const users = this.all(`SELECT u.id, u.username, u.display, u.created,
+          (SELECT COUNT(*) FROM messages m WHERE m.user_id=u.id) AS messages,
+          (SELECT COALESCE(SUM(f.size),0) FROM files f WHERE f.user_id=u.id) AS bytes,
+          (SELECT COUNT(*) FROM group_members g WHERE g.user_id=u.id) AS groups
+        FROM users u WHERE u.pass!='' ORDER BY u.id`);
+      return json({ users: users.map((u) => ({ ...u, online: this.sockets(u.id).length > 0 })) });
+    }
+    const u = this.get('SELECT * FROM users WHERE username=?', str(b.username, 40));
     if (!u || this.isGone(u.id)) throw new Err('Diesen Benutzernamen gibt es nicht.');
-    const pw = String(b.password ?? '');
-    if (pw.length < 6 || pw.length > 200) throw new Err('Das Passwort braucht mindestens 6 Zeichen.');
-    const salt = rand(16);
-    this.run('UPDATE users SET pass=?, salt=? WHERE id=?', await pbkdf(pw, salt), salt, u.id);
-    this.logoutEverywhere(u.id, null);
-    return json({ ok: true });
+    if (action === 'delete') {
+      this.deleteAccount(u, null);
+      return json({ ok: true });
+    }
+    if (action === 'password') {
+      const pw = String(b.password ?? '');
+      if (pw.length < 6 || pw.length > 200) throw new Err('Das Passwort braucht mindestens 6 Zeichen.');
+      const salt = rand(16);
+      this.run('UPDATE users SET pass=?, salt=? WHERE id=?', await pbkdf(pw, salt), salt, u.id);
+      this.logoutEverywhere(u.id, null);
+      return json({ ok: true });
+    }
+    return json({ err: 'Nicht gefunden' }, 404);
   }
 
   // Beendet alle Sitzungen eines Kontos (außer der Verbindung "keep").
@@ -484,6 +499,37 @@ export class Hub extends DurableObject {
     this.run('DELETE FROM groups WHERE id=?', gid);
     this.dropFile(icon);
     this.toUsers(members, { t: 'group.gone', id: gid });
+  }
+  // Löscht ein Konto: raus aus allen Gruppen, Freundschaften und Sitzungen weg. Nachrichten bleiben stehen,
+  // gehören aber nur noch einem namenlosen "Gelöschten Konto". Die Verbindung "keep" darf noch die Antwort erhalten.
+  deleteAccount(u, keep) {
+    const uid = u.id;
+    const audience = this.related(uid); // alle, die das Konto kannten, erfahren von der Löschung
+    for (const r of this.all('SELECT group_id FROM group_members WHERE user_id=?', uid)) this.leaveGroup(r.group_id, uid);
+    const friends = this.all('SELECT a,b FROM friends WHERE a=? OR b=?', uid, uid).map((r) => (r.a === uid ? r.b : r.a));
+    this.run('DELETE FROM friends WHERE a=? OR b=?', uid, uid);
+    this.run('DELETE FROM sessions WHERE user_id=?', uid);
+    this.run("UPDATE users SET username=?, display='Gelöschtes Konto', pass='', salt='', color='#5d726c', avatar=NULL, custom='', status='invisible' WHERE id=?", '~' + uid, uid);
+    this.dropFile(u.avatar);
+    // Unterhaltungen, in denen nie etwas stand oder deren Gegenüber auch schon weg ist, verschwinden ganz.
+    for (const c of this.all("SELECT id,ua,ub FROM chats WHERE type='dm' AND (ua=? OR ub=?)", uid, uid)) {
+      const empty = !this.get('SELECT 1 AS x FROM messages WHERE chat_id=? LIMIT 1', c.id);
+      if (empty || this.isGone(c.ua === uid ? c.ub : c.ua)) this.deleteChat(c.id);
+    }
+    for (const other of friends) this.toUsers([other], { t: 'friend', id: uid, state: 'none', users: [] });
+    for (const sock of this.ctx.getWebSockets('u:' + uid)) {
+      const att = sock.deserializeAttachment();
+      if (!att || att.dead) continue;
+      if (sock === keep) {
+        sock.serializeAttachment({ ...att, dead: true, voice: null });
+        if (att.voice) this.pushVoice(att.voice);
+      } else {
+        try { sock.send(JSON.stringify({ t: 'auth.fail' })); } catch {}
+        this.reap(sock, att, 4001);
+      }
+    }
+    this.toUsers([uid, ...audience], { t: 'user', user: this.user(uid) });
+    this.purgeGone();
   }
   // Gelöschte Konten, von denen weder Nachrichten noch Unterhaltungen übrig sind, restlos entfernen.
   purgeGone() {
@@ -812,33 +858,7 @@ export class Hub extends DurableObject {
       case 'account.delete': {
         const u = this.get('SELECT * FROM users WHERE id=?', uid);
         if ((await pbkdf(String(m.password ?? ''), u.salt)) !== u.pass) throw new Err('Das Passwort stimmt nicht.');
-        const audience = this.related(uid); // alle, die das Konto kannten, erfahren von der Löschung
-        for (const r of this.all('SELECT group_id FROM group_members WHERE user_id=?', uid)) this.leaveGroup(r.group_id, uid);
-        const friends = this.all('SELECT a,b FROM friends WHERE a=? OR b=?', uid, uid).map((r) => (r.a === uid ? r.b : r.a));
-        this.run('DELETE FROM friends WHERE a=? OR b=?', uid, uid);
-        this.run('DELETE FROM sessions WHERE user_id=?', uid);
-        // Nachrichten bleiben stehen, gehören aber nur noch einem namenlosen "Gelöschten Konto".
-        this.run("UPDATE users SET username=?, display='Gelöschtes Konto', pass='', salt='', color='#5d726c', avatar=NULL, custom='', status='invisible' WHERE id=?", '~' + uid, uid);
-        this.dropFile(u.avatar);
-        // Unterhaltungen, in denen nie etwas stand oder deren Gegenüber auch schon weg ist, verschwinden ganz.
-        for (const c of this.all("SELECT id,ua,ub FROM chats WHERE type='dm' AND (ua=? OR ub=?)", uid, uid)) {
-          const empty = !this.get('SELECT 1 AS x FROM messages WHERE chat_id=? LIMIT 1', c.id);
-          if (empty || this.isGone(c.ua === uid ? c.ub : c.ua)) this.deleteChat(c.id);
-        }
-        for (const other of friends) this.toUsers([other], { t: 'friend', id: uid, state: 'none', users: [] });
-        for (const sock of this.ctx.getWebSockets('u:' + uid)) {
-          const a2 = sock.deserializeAttachment();
-          if (!a2 || a2.dead) continue;
-          if (sock === ws) {
-            sock.serializeAttachment({ ...a2, dead: true, voice: null });
-            if (a2.voice) this.pushVoice(a2.voice);
-          } else {
-            try { sock.send(JSON.stringify({ t: 'auth.fail' })); } catch {}
-            this.reap(sock, a2, 4001);
-          }
-        }
-        this.toUsers([uid, ...audience], { t: 'user', user: this.user(uid) });
-        this.purgeGone();
+        this.deleteAccount(u, ws);
         return;
       }
 
