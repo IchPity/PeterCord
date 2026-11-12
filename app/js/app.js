@@ -32,7 +32,7 @@ const S = {
 };
 
 const prefs = Object.assign({
-  groupNotify: 'all', sound: true, mic: '', out: '', ns: true, ec: true, agc: true, inVol: 1, outVol: 1, vadAuto: true, vadTh: -50, fps: 30, vol: {},
+  groupNotify: 'all', sound: true, mic: '', out: '', ns: true, ec: true, agc: true, inVol: 1, outVol: 1, vadAuto: true, vadTh: -50, vadSet: false, fps: 30, vol: {},
 }, JSON.parse(localStorage.getItem('pc_prefs') || '{}'));
 const savePrefs = () => localStorage.setItem('pc_prefs', JSON.stringify(prefs));
 voice.settings = () => prefs;
@@ -1147,8 +1147,10 @@ function voicePage(cleanups) {
       const s = await navigator.mediaDevices.getUserMedia({ audio: true });
       s.getTracks().forEach((t) => t.stop());
       fillDevices();
-    } catch { toast('Kein Zugriff auf das Mikrofon. Erlaube ihn, damit die Gerätenamen erscheinen.', 'bad'); }
-  } }, 'Gerätenamen anzeigen');
+      toast('Mikrofonzugriff erlaubt');
+    } catch { toast('Der Zugriff ist noch gesperrt. Erlaube PeterCord das Mikrofon in den Windows-Einstellungen unter Datenschutz und Sicherheit → Mikrofon.', 'bad'); }
+  } }, 'Mikrofonzugriff erlauben');
+  const accessNote = h('p', { class: 'sub', hidden: true }, 'Den Zugriff hast du beim ersten Mal vielleicht abgelehnt. Hier kannst du ihn jederzeit nachträglich erlauben. Geräte und Lautstärken erscheinen danach.');
   async function fillDevices() {
     let list = [];
     try { list = await navigator.mediaDevices.enumerateDevices(); } catch {}
@@ -1161,7 +1163,10 @@ function voicePage(cleanups) {
     if (micSel.value !== prefs.mic) micSel.value = '';
     outSel.value = prefs.out;
     if (outSel.value !== prefs.out) outSel.value = '';
-    namesBtn.hidden = list.some((d) => d.label);
+    // Ohne Zugriff liefert der Browser keine Gerätenamen – dann bietet die Seite den Zugriff erneut an.
+    const granted = list.some((d) => d.label);
+    namesBtn.hidden = granted;
+    accessNote.hidden = granted;
   }
   fillDevices();
   const onDevices = () => fillDevices();
@@ -1184,17 +1189,36 @@ function voicePage(cleanups) {
   // ---- Pegel, Empfindlichkeit, Test ----
   const DB = 80; // Anzeigebereich: -80 dB bis 0 dB
   const at = (db) => Math.min(100, Math.max(0, ((db + DB) / DB) * 100)) + '%';
+  const fmtDb = (v) => `${String(Math.round(v)).replace('-', '−')} dB`;
   const fill = h('i', { class: 'meter-fill' });
   const mark = h('i', { class: 'meter-th' });
   const meter = h('div', { class: 'meter', 'aria-hidden': 'true' }, fill, mark);
   const meterNote = h('small', { class: 'sub' });
-  const vad = h('input', { type: 'range', min: -DB, max: 0, step: 1, value: prefs.vadTh, 'aria-label': 'Eingabeempfindlichkeit', oninput: () => {
+  const thVal = h('b', null, '');
+  const vadHint = h('p', { class: 'sub' });
+  const vad = h('input', { type: 'range', min: -DB, max: 0, step: 1, value: prefs.vadTh, 'aria-label': 'Schwelle der Eingabeempfindlichkeit', oninput: () => {
     prefs.vadTh = Number(vad.value);
+    prefs.vadSet = true;
     savePrefs();
     applyAudio();
   } });
-  const vadWrap = h('div', { class: 'vad' }, meter, vad);
-  const syncVad = () => { vad.disabled = prefs.vadAuto !== false; vadWrap.classList.toggle('auto', vad.disabled); };
+  const vadWrap = h('div', { class: 'vad' }, h('div', { class: 'vad-head' }, h('span', null, 'Schwelle'), thVal), meter, vad);
+  let autoTh = null; // zuletzt gemessene Schwelle der Automatik
+  const syncVad = () => {
+    const auto = prefs.vadAuto !== false;
+    // Wer zum ersten Mal von Hand einstellt, startet dort, wo die Automatik gerade stand –
+    // ein Stück höher, weil eine feste Schwelle keine Sprache erkennt.
+    if (!auto && !prefs.vadSet && autoTh != null) {
+      prefs.vadTh = Math.min(-10, Math.max(-DB, Math.round(autoTh + 4)));
+      savePrefs();
+    }
+    vad.value = prefs.vadTh;
+    vad.hidden = auto;
+    vadWrap.classList.toggle('auto', auto);
+    vadHint.textContent = auto
+      ? 'PeterCord erkennt deine Stimme und stellt sich laufend auf die Umgebung ein: Lüfter, Tastatur und Mausklicks bleiben draußen, leise Wortanfänge kommen trotzdem an. Die gelbe Markierung zeigt, ab welchem Pegel die Automatik gerade hinhört.'
+      : 'Alles unterhalb der gelben Markierung wird nicht übertragen. Zieh den Regler knapp über den Pegel, den die Anzeige zeigt, wenn du nichts sagst. Eine feste Schwelle erkennt keine Sprache – laute Tastenklicks kommen durch.';
+  };
   syncVad();
   const testBtn = h('button', { class: 'btn', type: 'button', onclick: async () => {
     testBtn.disabled = true;
@@ -1212,16 +1236,22 @@ function voicePage(cleanups) {
     const on = testing();
     testBtn.textContent = on ? 'Test beenden' : 'Mikrofon testen';
     testBtn.classList.toggle('primary', !on);
+    const auto = prefs.vadAuto !== false;
     if (L) {
+      if (auto) autoTh = L.th;
       fill.style.width = at(L.level);
       fill.classList.toggle('open', L.open);
       mark.style.left = at(L.th);
       mark.hidden = false;
-      meterNote.textContent = on ? 'Sprich etwas – du hörst dich selbst. Grün heißt: Das kommt bei den anderen an.' : 'Pegel deines Mikrofons im laufenden Anruf. Grün heißt: Das kommt bei den anderen an.';
+      thVal.textContent = auto ? `${fmtDb(L.th)} · automatisch` : fmtDb(prefs.vadTh);
+      meterNote.textContent = L.muted ? 'Du bist stummgeschaltet – gerade wird nichts übertragen.'
+        : on ? 'Sprich etwas – du hörst dich selbst. Grün heißt: Das kommt bei den anderen an.'
+        : 'Pegel deines Mikrofons im laufenden Anruf. Grün heißt: Das kommt bei den anderen an.';
     } else {
       fill.style.width = '0';
       mark.style.left = at(prefs.vadTh);
-      mark.hidden = prefs.vadAuto !== false;
+      mark.hidden = auto;
+      thVal.textContent = auto ? 'automatisch' : fmtDb(prefs.vadTh);
       meterNote.textContent = 'Starte den Test, um zu sehen, wie laut dein Mikrofon ist. Am besten mit Kopfhörern.';
     }
   };
@@ -1232,6 +1262,7 @@ function voicePage(cleanups) {
       h('label', { class: 'field grow' }, h('span', null, 'Eingabegerät (Mikrofon)'), micSel),
       h('label', { class: 'field grow' }, h('span', null, 'Ausgabegerät (Lautsprecher, Kopfhörer)'), outSel)),
     h('div', { class: 'row' }, namesBtn),
+    accessNote,
     noSink && h('p', { class: 'sub' }, 'Dieser Browser kann das Ausgabegerät nicht wechseln. In der Desktop-App geht es.'),
     h('div', { class: 'split' }, slider('inVol', 2, 'Eingabelautstärke'), slider('outVol', 1, 'Ausgabelautstärke')),
 
@@ -1239,9 +1270,9 @@ function voicePage(cleanups) {
     h('div', { class: 'row' }, testBtn, meterNote),
 
     h('h4', null, 'Eingabeempfindlichkeit'),
-    settingsCheck('Automatisch einstellen', 'vadAuto', () => { syncVad(); applyAudio(); }),
+    settingsCheck('Automatisch einstellen (empfohlen)', 'vadAuto', () => { syncVad(); applyAudio(); }),
     vadWrap,
-    h('p', { class: 'sub' }, 'Alles unterhalb der gelben Markierung wird nicht übertragen – so hört niemand deine Tastatur oder den Lüfter. Schalte „Automatisch“ aus und zieh den Regler, um die Schwelle selbst festzulegen.'),
+    vadHint,
 
     h('h4', null, 'Sprachverarbeitung'),
     settingsCheck('Hintergrundgeräusche unterdrücken', 'ns', () => reloadMic().catch(fail)),

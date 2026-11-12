@@ -338,11 +338,14 @@ button.vrow:hover { background: var(--raise); color: var(--text); }
 
 /* Pegelanzeige mit Schwelle */
 .vad { display: flex; flex-direction: column; gap: 6px; }
-.vad.auto input { opacity: .4; }
+.vad-head { display: flex; justify-content: space-between; color: var(--dim); font-size: 13px; }
+.vad-head b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.vad input[hidden] { display: none; }
 .meter { position: relative; height: 12px; border-radius: 6px; background: var(--rail); border: 1px solid var(--line); overflow: hidden; margin: 0 8px; }
 .meter-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: #62746f; transition: width 60ms linear; }
 .meter-fill.open { background: var(--ok); }
 .meter-th { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: var(--accent); }
+.vad.auto .meter-th { transition: left 200ms linear; } /* die Automatik wandert, statt zu springen */
 
 @media (max-width: 720px) {
   .settings { flex-direction: column; gap: 12px; }

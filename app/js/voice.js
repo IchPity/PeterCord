@@ -149,6 +149,7 @@ export function onList(list) {
 
 // ---------- Mikrofon ----------
 // Kette: Mikrofon → Gate-Worklet (Lautstärke, Empfindlichkeit, Pegel) → MediaStream, der an alle geht.
+// Die Automatik der Empfindlichkeit (Spracherkennung, Grundrauschen) steckt komplett in gate-worklet.js.
 // Ein Gerätewechsel tauscht nur den Anfang der Kette aus. Die gesendete Spur bleibt dieselbe,
 // deshalb muss im laufenden Anruf nichts neu ausgehandelt werden.
 async function rawMic() {
@@ -158,7 +159,7 @@ async function rawMic() {
   try {
     return await navigator.mediaDevices.getUserMedia({ audio, video: false });
   } catch {
-    throw new Error('Kein Zugriff auf das Mikrofon. Erlaube den Zugriff und prüfe, ob ein Mikrofon angeschlossen ist.');
+    throw new Error('Kein Zugriff auf das Mikrofon. Erlaube den Zugriff und prüfe, ob ein Mikrofon angeschlossen ist. Nachträglich erlauben kannst du das unter Einstellungen → Sprache & Video.');
   }
 }
 
@@ -217,6 +218,8 @@ async function swapMicSource(m) {
   m.raw = raw;
   m.src = m.ctx.createMediaStreamSource(raw);
   m.src.connect(m.node);
+  // Ein anderes Gerät oder eine andere Sprachverarbeitung rauscht anders: Die Automatik misst neu ein.
+  m.node.port.postMessage({ reset: true });
 }
 
 function closeMic(m) {
@@ -268,9 +271,12 @@ export async function micTest(on) {
 export const testing = () => !!(voice.test || voice.testLoop);
 
 // Aktueller Pegel für die Anzeige in den Einstellungen – aus dem Test oder dem laufenden Anruf.
+// open: Das kommt gerade bei den anderen an. muted: im Anruf stummgeschaltet.
 export function micLevel() {
   const m = voice.test || voice.mic;
-  return m?.node ? { level: m.level, open: m.open, th: m.th } : null;
+  if (!m?.node) return null;
+  const muted = m === voice.mic && (voice.muted || voice.deaf);
+  return { level: m.level, open: m.open && !muted, th: m.th, muted };
 }
 
 function applyMute() {
