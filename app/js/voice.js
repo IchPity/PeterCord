@@ -8,7 +8,10 @@ let ice = DEFAULT_ICE;
 export const voice = {
   chat: null,
   peers: new Map(), // cid -> { pc, audio, screen, ... }
-  local: null,
+  local: null, // der Ton, der an alle geht
+  mic: null, // Mikrofon im Anruf (siehe openMic)
+  test: null, // eigenes Mikrofon für den Test in den Einstellungen (nur außerhalb eines Anrufs)
+  testLoop: null, // im Anruf: das Anruf-Mikrofon wird zum Testen mitgehört
   screen: null,
   muted: false,
   deaf: false,
@@ -38,6 +41,14 @@ function runMeters() {
   clearInterval(meterTimer);
   meterTimer = setInterval(() => {
     let changed = false;
+    // Eigene Anzeige: grün, wenn wirklich gesendet wird (Empfindlichkeit überschritten, nicht stumm).
+    if (voice.mic?.node) {
+      const on = voice.mic.open && !voice.muted && !voice.deaf;
+      if (on !== voice.speaking.has(net.cid)) {
+        on ? voice.speaking.add(net.cid) : voice.speaking.delete(net.cid);
+        changed = true;
+      }
+    }
     for (const [cid, m] of meters) {
       m.an.getByteTimeDomainData(m.buf);
       let peak = 0;
@@ -136,8 +147,135 @@ export function onList(list) {
   }
 }
 
+// ---------- Mikrofon ----------
+// Kette: Mikrofon → Gate-Worklet (Lautstärke, Empfindlichkeit, Pegel) → MediaStream, der an alle geht.
+// Ein Gerätewechsel tauscht nur den Anfang der Kette aus. Die gesendete Spur bleibt dieselbe,
+// deshalb muss im laufenden Anruf nichts neu ausgehandelt werden.
+async function rawMic() {
+  const s = voice.settings();
+  const audio = { echoCancellation: s.ec !== false, noiseSuppression: s.ns !== false, autoGainControl: s.agc !== false, channelCount: 1 };
+  if (s.mic) audio.deviceId = { ideal: s.mic };
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio, video: false });
+  } catch {
+    throw new Error('Kein Zugriff auf das Mikrofon. Erlaube den Zugriff und prüfe, ob ein Mikrofon angeschlossen ist.');
+  }
+}
+
+function micParams(m) {
+  const s = voice.settings();
+  m.node?.port.postMessage({
+    gain: Math.min(2, Math.max(0, s.inVol ?? 1)),
+    auto: s.vadAuto !== false,
+    th: s.vadTh ?? -50,
+    muted: m === voice.mic && (voice.muted || voice.deaf),
+  });
+}
+
+async function openMic() {
+  const raw = await rawMic();
+  const m = { raw, ctx: null, src: null, node: null, stream: raw, level: -100, open: true, th: -50 };
+  try {
+    m.ctx = new AudioContext();
+    await m.ctx.audioWorklet.addModule(new URL('./gate-worklet.js', import.meta.url));
+    m.node = new AudioWorkletNode(m.ctx, 'pc-gate', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+    m.node.port.onmessage = (e) => { m.level = e.data.level; m.open = e.data.open; m.th = e.data.th; };
+    const dest = m.ctx.createMediaStreamDestination();
+    m.node.connect(dest);
+    m.src = m.ctx.createMediaStreamSource(raw);
+    m.src.connect(m.node);
+    m.stream = dest.stream;
+    if (m.ctx.state === 'suspended') m.ctx.resume().catch(() => {});
+    micParams(m);
+  } catch (e) {
+    // Ohne AudioWorklet geht es auch – dann eben ohne Lautstärke und Empfindlichkeit.
+    console.warn('mic', e);
+    m.ctx?.close().catch(() => {});
+    m.ctx = m.node = m.src = null;
+    m.stream = raw;
+  }
+  return m;
+}
+
+async function swapMicSource(m) {
+  const raw = await rawMic();
+  if (!m.node) {
+    // Ohne Worklet: die Spur bei allen Verbindungen direkt austauschen.
+    const track = raw.getAudioTracks()[0];
+    if (m === voice.mic) {
+      for (const p of voice.peers.values()) {
+        for (const tx of p.pc.getSenders()) if (tx.track?.kind === 'audio') tx.replaceTrack(track).catch(() => {});
+      }
+    }
+    m.raw.getTracks().forEach((t) => t.stop());
+    m.raw = m.stream = raw;
+    if (m === voice.mic) { voice.local = raw; applyMute(); addMeter(net.cid, raw); }
+    return;
+  }
+  m.src?.disconnect();
+  m.raw.getTracks().forEach((t) => t.stop());
+  m.raw = raw;
+  m.src = m.ctx.createMediaStreamSource(raw);
+  m.src.connect(m.node);
+}
+
+function closeMic(m) {
+  if (!m) return;
+  m.raw.getTracks().forEach((t) => t.stop());
+  m.stream.getTracks().forEach((t) => t.stop());
+  m.ctx?.close().catch(() => {});
+}
+
+function testSink(m) {
+  const out = voice.settings().out || '';
+  if (m.ctx?.setSinkId) m.ctx.setSinkId(out).catch(() => {});
+}
+
+// Anderes Gerät oder geänderte Sprachverarbeitung: Mikrofon neu öffnen, ohne den Anruf zu unterbrechen.
+export async function reloadMic() {
+  for (const m of [voice.mic, voice.test]) if (m) await swapMicSource(m);
+}
+
+// Lautstärken und Empfindlichkeit sofort übernehmen.
+export function applyAudio() {
+  for (const m of [voice.mic, voice.test]) if (m) micParams(m);
+  for (const p of voice.peers.values()) p.audio.volume = voice.volumeOf(p.cid);
+}
+
+// Mikrofontest: Man hört sich selbst. Im Anruf wird einfach das Anruf-Mikrofon mitgehört.
+export async function micTest(on) {
+  if (on) {
+    if (voice.test || voice.testLoop) return;
+    if (voice.mic?.node) {
+      voice.mic.node.connect(voice.mic.ctx.destination);
+      testSink(voice.mic);
+      voice.testLoop = voice.mic;
+      return;
+    }
+    const m = await openMic();
+    if (m.node) m.node.connect(m.ctx.destination);
+    testSink(m);
+    voice.test = m;
+  } else {
+    if (voice.testLoop) {
+      try { voice.testLoop.node.disconnect(voice.testLoop.ctx.destination); } catch {}
+      voice.testLoop = null;
+    }
+    closeMic(voice.test);
+    voice.test = null;
+  }
+}
+export const testing = () => !!(voice.test || voice.testLoop);
+
+// Aktueller Pegel für die Anzeige in den Einstellungen – aus dem Test oder dem laufenden Anruf.
+export function micLevel() {
+  const m = voice.test || voice.mic;
+  return m?.node ? { level: m.level, open: m.open, th: m.th } : null;
+}
+
 function applyMute() {
   if (voice.local) for (const t of voice.local.getAudioTracks()) t.enabled = !voice.muted && !voice.deaf;
+  if (voice.mic) micParams(voice.mic);
   for (const p of voice.peers.values()) p.audio.muted = voice.deaf;
 }
 
@@ -149,26 +287,22 @@ function sendState() {
 export async function join(chat) {
   if (voice.chat === chat) return;
   if (voice.chat) await leave();
-  const s = voice.settings();
-  const audio = { echoCancellation: true, noiseSuppression: s.ns !== false, autoGainControl: true };
-  if (s.mic) audio.deviceId = { ideal: s.mic };
-  try {
-    voice.local = await navigator.mediaDevices.getUserMedia({ audio, video: false });
-  } catch {
-    throw new Error('Kein Zugriff auf das Mikrofon. Erlaube den Zugriff und prüfe, ob ein Mikrofon angeschlossen ist.');
-  }
+  if (voice.test) await micTest(false); // ein laufender Test gibt das Gerät frei
+  const mic = await openMic();
+  voice.mic = mic;
+  voice.local = mic.stream;
   applyMute();
   let res;
   try {
     res = await req('voice.join', { chat, muted: voice.muted || voice.deaf, deaf: voice.deaf });
   } catch (e) {
-    voice.local.getTracks().forEach((t) => t.stop());
-    voice.local = null;
+    closeMic(mic);
+    voice.mic = voice.local = null;
     throw e;
   }
   voice.chat = chat;
   ice = Array.isArray(res.ice) && res.ice.length ? res.ice : DEFAULT_ICE;
-  addMeter(net.cid, voice.local);
+  if (!mic.node) addMeter(net.cid, mic.raw);
   runMeters();
   for (const x of res.list) if (x.cid !== net.cid) makePeer(x.cid);
   voice.onChange();
@@ -182,11 +316,13 @@ export async function leave(local = false) {
   clearInterval(meterTimer);
   for (const cid of [...voice.peers.keys()]) dropPeer(cid);
   meters.clear();
-  // Der AudioContext für die Sprech-Anzeige würde sonst im Leerlauf weiterrechnen.
+  // Die AudioContexts würden sonst im Leerlauf weiterrechnen.
   actx?.close().catch(() => {});
   actx = null;
   voice.speaking.clear();
-  voice.local?.getTracks().forEach((t) => t.stop());
+  voice.testLoop = null;
+  closeMic(voice.mic);
+  voice.mic = null;
   voice.screen?.getTracks().forEach((t) => t.stop());
   voice.local = voice.screen = null;
   voice.onChange();
@@ -217,7 +353,7 @@ export async function toggleScreen() {
   }
   let stream;
   try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { max: 20 } }, audio: false });
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { max: Number(voice.settings().fps) || 30 } }, audio: false });
   } catch {
     return; // Auswahl abgebrochen
   }
@@ -231,4 +367,5 @@ export async function toggleScreen() {
 
 export function setOutput(id) {
   for (const p of voice.peers.values()) if (p.audio.setSinkId) p.audio.setSinkId(id || '').catch(() => {});
+  for (const m of [voice.test, voice.testLoop]) if (m) testSink(m);
 }

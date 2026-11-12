@@ -120,11 +120,24 @@ export function popover(anchor, content, { align = 'start', side = 'bottom' } = 
   return close;
 }
 
+// Einträge: { label, icon, run, danger } oder '-' als Trennlinie.
 export function menu(anchor, items, opts) {
-  const close = popover(anchor, h('div', { class: 'menu' }, items.filter(Boolean).map((it) =>
-    h('button', { class: 'mi ' + (it.danger ? 'danger' : ''), type: 'button', onclick: () => { close(); it.run(); } },
+  const list = items.filter(Boolean).filter((it, i, a) => it !== '-' || (i > 0 && i < a.length - 1 && a[i - 1] !== '-'));
+  const close = popover(anchor, h('div', { class: 'menu', role: 'menu' }, list.map((it) => it === '-'
+    ? h('hr')
+    : h('button', { class: 'mi ' + (it.danger ? 'danger' : ''), type: 'button', role: 'menuitem', onclick: () => { close(); it.run(); } },
       it.icon && icon(it.icon, 18), h('span', null, it.label)))), opts);
   return close;
+}
+
+// Rechtsklick-Menü an der Mausposition.
+export function contextMenu(e, items) {
+  e.preventDefault();
+  e.stopPropagation();
+  const x = e.clientX;
+  const y = e.clientY;
+  const at = { getBoundingClientRect: () => ({ left: x, right: x, top: y, bottom: y }), contains: () => false };
+  return menu(at, items);
 }
 
 const modals = [];

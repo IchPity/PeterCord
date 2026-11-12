@@ -1,10 +1,12 @@
 import { net, isApp, invoke, api, upload, fileUrl, req, connect, disconnect, setToken, setServer } from './net.js';
 import {
-  h, icon, iconBtn, avatar, initials, toast, fail, popover, closePopover, menu, modal, closeModal, hasModal, ask, promptText,
+  h, icon, iconBtn, avatar, initials, toast, fail, popover, closePopover, menu, contextMenu, modal, closeModal, hasModal, ask, promptText,
   emojiPicker, sound, clock, dayKey, dayLabel, size, markdown, STATUS,
 } from './ui.js';
 import { DOWNLOAD_URL } from './config.js';
-import { voice, join, leave, onRtc, onList, toggleMute, toggleDeaf, toggleScreen, setOutput } from './voice.js';
+import {
+  voice, join, leave, onRtc, onList, toggleMute, toggleDeaf, toggleScreen, setOutput, reloadMic, applyAudio, micTest, testing, micLevel,
+} from './voice.js';
 
 const root = document.getElementById('root');
 const E = {}; // feste Elemente der Oberfläche
@@ -29,12 +31,15 @@ const S = {
   built: false,
 };
 
-const prefs = Object.assign({ groupNotify: 'all', sound: true, mic: '', out: '', ns: true, vol: {} }, JSON.parse(localStorage.getItem('pc_prefs') || '{}'));
+const prefs = Object.assign({
+  groupNotify: 'all', sound: true, mic: '', out: '', ns: true, ec: true, agc: true, inVol: 1, outVol: 1, vadAuto: true, vadTh: -50, fps: 30, vol: {},
+}, JSON.parse(localStorage.getItem('pc_prefs') || '{}'));
 const savePrefs = () => localStorage.setItem('pc_prefs', JSON.stringify(prefs));
 voice.settings = () => prefs;
 voice.volumeOf = (cid) => {
   const p = (S.voice.get(voice.chat) || []).find((x) => x.cid === cid);
-  return p ? Math.min(1, Math.max(0, prefs.vol[p.uid] ?? 1)) : 1;
+  const master = Math.min(1, Math.max(0, prefs.outVol ?? 1));
+  return master * (p ? Math.min(1, Math.max(0, prefs.vol[p.uid] ?? 1)) : 1);
 };
 
 const openUrl = (url) => {
@@ -218,6 +223,7 @@ function renderRail() {
     return h('button', {
       class: 'tile' + (S.view.group === g.id ? ' on' : '') + (unread ? ' unread' : ''), title: g.name, 'aria-label': g.name,
       onclick: () => selectGroup(g.id),
+      oncontextmenu: (e) => contextMenu(e, groupItems(g)),
     }, g.icon ? h('img', { src: fileUrl(g.icon), alt: '', draggable: false }) : initials(g.name), live && h('i', { class: 'live' }));
   });
   E.rail.replaceChildren(
@@ -254,7 +260,8 @@ function renderSide() {
     if (!dms.length) out.push(h('p', { class: 'hint' }, 'Noch keine Unterhaltungen. Füge unter „Freunde“ jemanden hinzu und schreib los.'));
     for (const d of dms) {
       const u = U(d.user);
-      out.push(h('button', { class: 'row-btn dm' + (v.chat === d.id ? ' on' : '') + (rd(d.id).unread ? ' unread' : ''), onclick: () => openChat(d.id) },
+      out.push(h('button', { class: 'row-btn dm' + (v.chat === d.id ? ' on' : '') + (rd(d.id).unread ? ' unread' : ''), onclick: () => openChat(d.id),
+        oncontextmenu: (e) => contextMenu(e, dmItems(d, u)) },
         avatar(u, 32, true),
         h('span', { class: 'grow cut2' }, h('span', { class: 'cut' }, u.display), u.custom && h('small', { class: 'cut' }, u.custom)),
         S.voice.get(d.id)?.length ? icon('phone', 16) : null, badge(rd(d.id).unread)));
@@ -263,19 +270,21 @@ function renderSide() {
     const g = S.groups.get(v.group);
     if (!g) return;
     const owner = g.owner === S.me.id;
-    const headBtn = h('button', { class: 'side-head as-btn', onclick: () => groupMenu(g, headBtn) }, h('span', { class: 'grow cut' }, g.name), icon('chev', 18));
+    const headBtn = h('button', { class: 'side-head as-btn', onclick: () => groupMenu(g, headBtn), oncontextmenu: (e) => contextMenu(e, groupItems(g)) }, h('span', { class: 'grow cut' }, g.name), icon('chev', 18));
     out.push(headBtn);
     const section = (title, kind) => h('h3', null, title, owner && iconBtn('plus', 'Kanal erstellen', () => channelDialog(g, kind), 'tiny'));
     out.push(section('Textkanäle', 'text'));
     for (const c of g.channels.filter((x) => x.kind === 'text')) {
-      const row = h('button', { class: 'row-btn chan' + (v.chat === c.id ? ' on' : '') + (rd(c.id).unread ? ' unread' : ''), onclick: () => openChat(c.id) },
+      const row = h('button', { class: 'row-btn chan' + (v.chat === c.id ? ' on' : '') + (rd(c.id).unread ? ' unread' : ''), onclick: () => openChat(c.id),
+        oncontextmenu: (e) => contextMenu(e, channelItems(g, c)) },
         icon('hash', 18), h('span', { class: 'grow cut' }, c.name), badge(rd(c.id).unread),
         owner && h('span', { class: 'ib tiny hover', title: 'Kanal bearbeiten', onclick: (e) => { e.stopPropagation(); channelEdit(g, c); } }, icon('edit', 15)));
       out.push(row);
     }
     out.push(section('Sprachkanäle', 'voice'));
     for (const c of g.channels.filter((x) => x.kind === 'voice')) {
-      out.push(h('button', { class: 'row-btn chan' + (voice.chat === c.id ? ' on' : ''), title: 'Sprachkanal betreten', onclick: () => joinVoice(c.id) },
+      out.push(h('button', { class: 'row-btn chan' + (voice.chat === c.id ? ' on' : ''), title: 'Sprachkanal betreten', onclick: () => joinVoice(c.id),
+        oncontextmenu: (e) => contextMenu(e, channelItems(g, c)) },
         icon('volume', 18), h('span', { class: 'grow cut' }, c.name),
         owner && h('span', { class: 'ib tiny hover', title: 'Kanal bearbeiten', onclick: (e) => { e.stopPropagation(); channelEdit(g, c); } }, icon('edit', 15))),
         h('div', { class: 'vlist' }, voiceRows(c.id)));
@@ -302,9 +311,15 @@ function renderSide() {
     avatar({ ...S.me, status: S.me.status }, 34, true),
     h('span', { class: 'grow cut2' }, h('span', { class: 'cut' }, S.me.display), h('small', { class: 'cut' }, S.me.custom || STATUS[S.me.status])));
   E.userPanel.replaceChildren(meBtn,
-    iconBtn(voice.muted || voice.deaf ? 'micOff' : 'mic', voice.muted ? 'Mikrofon einschalten' : 'Mikrofon stummschalten', toggleMute, voice.muted || voice.deaf ? 'off' : ''),
-    iconBtn(voice.deaf ? 'headOff' : 'head', voice.deaf ? 'Ton einschalten' : 'Ton ausschalten', toggleDeaf, voice.deaf ? 'off' : ''),
-    iconBtn('gear', 'Einstellungen', settingsDialog));
+    audioBtn(iconBtn(voice.muted || voice.deaf ? 'micOff' : 'mic', (voice.muted ? 'Mikrofon einschalten' : 'Mikrofon stummschalten') + ' (Rechtsklick: Sprach-Einstellungen)', toggleMute, voice.muted || voice.deaf ? 'off' : '')),
+    audioBtn(iconBtn(voice.deaf ? 'headOff' : 'head', (voice.deaf ? 'Ton einschalten' : 'Ton ausschalten') + ' (Rechtsklick: Sprach-Einstellungen)', toggleDeaf, voice.deaf ? 'off' : '')),
+    iconBtn('gear', 'Einstellungen', () => settingsDialog()));
+}
+
+// Rechtsklick auf Mikrofon oder Kopfhörer öffnet direkt die Sprach-Einstellungen.
+function audioBtn(el) {
+  el.addEventListener('contextmenu', (e) => { e.preventDefault(); settingsDialog('voice'); });
+  return el;
 }
 
 function statusMenu(anchor) {
@@ -352,7 +367,7 @@ function renderMembers() {
   const on = users.filter((u) => u.status !== 'offline');
   const off = users.filter((u) => u.status === 'offline');
   const row = (u) => {
-    const el = h('button', { class: 'row-btn member' + (u.status === 'offline' ? ' off' : ''), onclick: () => userCard(u, el, g) },
+    const el = h('button', { class: 'row-btn member' + (u.status === 'offline' ? ' off' : ''), onclick: () => userCard(u, el, g), oncontextmenu: (e) => { e.preventDefault(); userCard(u, el, g); } },
       avatar(u, 32, true),
       h('span', { class: 'grow cut2' }, h('span', { class: 'cut', style: { color: u.status === 'offline' ? '' : u.color } }, u.display), u.custom && h('small', { class: 'cut' }, u.custom)),
       g.owner === u.id && h('span', { class: 'crown', title: 'Besitzer der Gruppe' }, '♛'));
@@ -474,6 +489,14 @@ async function loadHistory(id) {
 function markRead() {
   const id = S.view.chat;
   if (S.view.page !== 'chat' || !id || !document.hasFocus() || !S.stick) return;
+  const r = rd(id);
+  if (!r.unread) return;
+  r.unread = 0;
+  req('read', { chat: id }).catch(() => {});
+  schedule();
+}
+
+function markChatRead(id) {
   const r = rd(id);
   if (!r.unread) return;
   r.unread = 0;
@@ -843,17 +866,64 @@ function inviteDialog(g) {
   ]);
 }
 
-function groupMenu(g, anchor) {
+// Einträge für das Gruppenmenü (Klick auf den Gruppennamen oder Rechtsklick auf das Gruppenbild).
+function groupItems(g) {
   const owner = g.owner === S.me.id;
-  menu(anchor, [
+  const unread = g.channels.filter((c) => rd(c.id).unread > 0);
+  return [
+    unread.length && { label: 'Als gelesen markieren', icon: 'check', run: () => unread.forEach((c) => markChatRead(c.id)) },
     { label: 'Freunde einladen', icon: 'plus', run: () => inviteDialog(g) },
+    g.invite && { label: 'Einladungscode kopieren', icon: 'copy', run: () => copyText(g.invite, 'Einladungscode kopiert') },
     owner && { label: 'Gruppe bearbeiten', icon: 'edit', run: () => groupSettings(g) },
+    '-',
+    owner && { label: 'Gruppe löschen', icon: 'trash', danger: true, run: () => deleteGroup(g) },
     { label: 'Gruppe verlassen', icon: 'out', danger: true, run: async () => {
       if (await ask('Gruppe verlassen', `„${g.name}“ wirklich verlassen?` + (owner ? ' Die Gruppe geht an das dienstälteste Mitglied über. Bist du allein, wird sie gelöscht.' : ''), 'Verlassen')) {
         req('group.leave', { group: g.id }).catch(fail);
       }
     } },
-  ]);
+  ];
+}
+
+function groupMenu(g, anchor) {
+  menu(anchor, groupItems(g));
+}
+
+async function deleteGroup(g) {
+  if (await ask('Gruppe löschen', `„${g.name}“ mit allen Kanälen und Nachrichten endgültig löschen? Das lässt sich nicht rückgängig machen.`, 'Gruppe löschen')) {
+    req('group.delete', { group: g.id }).catch(fail);
+    return true;
+  }
+  return false;
+}
+
+function channelItems(g, c) {
+  const owner = g.owner === S.me.id;
+  const voiceKind = c.kind === 'voice';
+  return [
+    !voiceKind && rd(c.id).unread > 0 && { label: 'Als gelesen markieren', icon: 'check', run: () => markChatRead(c.id) },
+    voiceKind && (voice.chat === c.id
+      ? { label: 'Sprachkanal verlassen', icon: 'hang', run: hangUp }
+      : { label: 'Sprachkanal betreten', icon: 'volume', run: () => joinVoice(c.id) }),
+    owner && { label: 'Kanal bearbeiten', icon: 'edit', run: () => channelEdit(g, c) },
+    owner && '-',
+    owner && { label: 'Kanal löschen', icon: 'trash', danger: true, run: async () => {
+      if (await ask('Kanal löschen', `„${c.name}“ mit allen Nachrichten endgültig löschen?`, 'Kanal löschen')) req('channel.delete', { chat: c.id }).catch(fail);
+    } },
+  ];
+}
+
+function dmItems(d, u) {
+  const inCall = voice.chat === d.id;
+  return [
+    rd(d.id).unread > 0 && { label: 'Als gelesen markieren', icon: 'check', run: () => markChatRead(d.id) },
+    { label: inCall ? 'Auflegen' : 'Anrufen', icon: inCall ? 'hang' : 'phone', run: () => (inCall ? hangUp() : joinVoice(d.id)) },
+    !isGone(u) && { label: 'Benutzernamen kopieren', icon: 'copy', run: () => copyText(u.username, 'Benutzername kopiert') },
+  ];
+}
+
+function copyText(text, done) {
+  navigator.clipboard.writeText(text).then(() => toast(done), () => toast('Kopieren hat nicht geklappt.', 'bad'));
 }
 
 function groupSettings(g) {
@@ -876,7 +946,7 @@ function groupSettings(g) {
       } }, 'Neuen Einladungscode erzeugen')),
     h('hr'),
     h('button', { class: 'btn danger', type: 'button', onclick: async () => {
-      if (await ask('Gruppe löschen', `„${g.name}“ mit allen Kanälen und Nachrichten endgültig löschen?`, 'Gruppe löschen')) { close(); req('group.delete', { group: g.id }).catch(fail); }
+      if (await deleteGroup(g)) close();
     } }, 'Gruppe löschen'),
   ]);
 }
@@ -1002,7 +1072,45 @@ function showRing(chat, from) {
 // ======================================================================
 // Einstellungen
 // ======================================================================
-async function settingsDialog() {
+// Die Einstellungen sind in Reiter aufgeteilt. Jeder Reiter wird beim ersten Öffnen gebaut und bleibt dann erhalten,
+// damit beim Hin- und Herwechseln nichts Eingetipptes verloren geht.
+function settingsDialog(start = 'profile') {
+  const cleanups = [];
+  const pages = [
+    ['profile', 'Profil', 'users', profilePage],
+    ['voice', 'Sprache & Video', 'mic', () => voicePage(cleanups)],
+    ['notify', 'Benachrichtigungen', 'msg', notifyPage],
+    ['account', 'Konto', 'edit', accountPage],
+    ['app', isApp ? 'App' : 'Desktop-App', 'screen', appPage],
+  ];
+  const built = new Map();
+  const nav = h('nav', { class: 'set-nav', role: 'tablist', 'aria-label': 'Bereiche' });
+  const pane = h('div', { class: 'set-pane', role: 'tabpanel' });
+  const show = (key) => {
+    const page = pages.find((p) => p[0] === key) || pages[0];
+    if (!built.has(page[0])) built.set(page[0], h('div', { class: 'set-page' }, h('h3', null, page[1]), page[3]()));
+    pane.replaceChildren(built.get(page[0]));
+    nav.replaceChildren(...pages.map(([k, label, ic]) => h('button', {
+      class: 'set-tab' + (k === page[0] ? ' on' : ''), type: 'button', role: 'tab', 'aria-selected': String(k === page[0]), onclick: () => show(k),
+    }, icon(ic, 18), h('span', null, label))));
+  };
+  show(start);
+  modal('Einstellungen', h('div', { class: 'settings' }, nav, pane), {
+    wide: true,
+    onClose: () => { for (const f of cleanups) f(); },
+  });
+}
+
+const settingsSel = (value, options, onchange) => {
+  const s = h('select', { class: 'in', onchange: () => onchange(s.value) }, options.map(([v, l]) => h('option', { value: v }, l)));
+  s.value = value;
+  return s;
+};
+const settingsCheck = (label, key, after) => h('label', { class: 'check' },
+  h('input', { type: 'checkbox', checked: prefs[key] !== false, onchange: (e) => { prefs[key] = e.target.checked; savePrefs(); after?.(); } }), label);
+const pct = (v) => Math.round(v * 100) + ' %';
+
+function profilePage() {
   const me = S.me;
   const display = h('input', { class: 'in', maxLength: 32, value: me.display });
   const custom = h('input', { class: 'in', maxLength: 80, value: me.custom, placeholder: 'Was machst du gerade?' });
@@ -1018,67 +1126,183 @@ async function settingsDialog() {
       toast('Profilbild gespeichert');
     } catch (e) { fail(e); }
   } });
+  return h('form', { onsubmit: (e) => { e.preventDefault(); req('profile.update', { display: display.value, custom: custom.value, color }).then(() => toast('Profil gespeichert'), fail); } },
+    h('div', { class: 'split' }, h('label', { class: 'field grow' }, h('span', null, 'Anzeigename'), display), h('label', { class: 'field grow' }, h('span', null, 'Status-Text'), custom)),
+    h('div', { class: 'field' }, h('span', null, 'Farbe'), swatches),
+    h('div', { class: 'row' }, pick, h('button', { class: 'btn primary' }, 'Profil speichern'),
+      h('button', { class: 'btn', type: 'button', onclick: () => pick.click() }, 'Profilbild ändern'),
+      me.avatar && h('button', { class: 'btn', type: 'button', onclick: () => req('profile.update', { avatar: null }).then(() => toast('Profilbild entfernt'), fail) }, 'Bild entfernen')));
+}
+
+function voicePage(cleanups) {
+  // ---- Geräte ----
+  const micSel = h('select', { class: 'in', onchange: async () => {
+    prefs.mic = micSel.value;
+    savePrefs();
+    try { await reloadMic(); } catch (e) { fail(e); }
+  } });
+  const outSel = h('select', { class: 'in', onchange: () => { prefs.out = outSel.value; savePrefs(); setOutput(outSel.value); } });
+  const namesBtn = h('button', { class: 'btn', type: 'button', hidden: true, onclick: async () => {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach((t) => t.stop());
+      fillDevices();
+    } catch { toast('Kein Zugriff auf das Mikrofon. Erlaube ihn, damit die Gerätenamen erscheinen.', 'bad'); }
+  } }, 'Gerätenamen anzeigen');
+  async function fillDevices() {
+    let list = [];
+    try { list = await navigator.mediaDevices.enumerateDevices(); } catch {}
+    const opts = (kind) => [h('option', { value: '' }, 'Standardgerät (Windows)'),
+      ...list.filter((d) => d.kind === kind && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications')
+        .map((d, i) => h('option', { value: d.deviceId }, d.label || `${kind === 'audioinput' ? 'Mikrofon' : 'Lautsprecher'} ${i + 1}`))];
+    micSel.replaceChildren(...opts('audioinput'));
+    outSel.replaceChildren(...opts('audiooutput'));
+    micSel.value = prefs.mic;
+    if (micSel.value !== prefs.mic) micSel.value = '';
+    outSel.value = prefs.out;
+    if (outSel.value !== prefs.out) outSel.value = '';
+    namesBtn.hidden = list.some((d) => d.label);
+  }
+  fillDevices();
+  const onDevices = () => fillDevices();
+  navigator.mediaDevices?.addEventListener?.('devicechange', onDevices);
+  cleanups.push(() => navigator.mediaDevices?.removeEventListener?.('devicechange', onDevices));
+  const noSink = !('setSinkId' in HTMLMediaElement.prototype);
+
+  // ---- Lautstärken ----
+  const slider = (key, max, label) => {
+    const val = h('b', null, pct(prefs[key]));
+    const r = h('input', { type: 'range', min: 0, max, step: 0.05, value: prefs[key], 'aria-label': label, oninput: () => {
+      prefs[key] = Number(r.value);
+      val.textContent = pct(prefs[key]);
+      savePrefs();
+      applyAudio();
+    } });
+    return h('label', { class: 'field grow range' }, h('span', null, label, val), r);
+  };
+
+  // ---- Pegel, Empfindlichkeit, Test ----
+  const DB = 80; // Anzeigebereich: -80 dB bis 0 dB
+  const at = (db) => Math.min(100, Math.max(0, ((db + DB) / DB) * 100)) + '%';
+  const fill = h('i', { class: 'meter-fill' });
+  const mark = h('i', { class: 'meter-th' });
+  const meter = h('div', { class: 'meter', 'aria-hidden': 'true' }, fill, mark);
+  const meterNote = h('small', { class: 'sub' });
+  const vad = h('input', { type: 'range', min: -DB, max: 0, step: 1, value: prefs.vadTh, 'aria-label': 'Eingabeempfindlichkeit', oninput: () => {
+    prefs.vadTh = Number(vad.value);
+    savePrefs();
+    applyAudio();
+  } });
+  const vadWrap = h('div', { class: 'vad' }, meter, vad);
+  const syncVad = () => { vad.disabled = prefs.vadAuto !== false; vadWrap.classList.toggle('auto', vad.disabled); };
+  syncVad();
+  const testBtn = h('button', { class: 'btn', type: 'button', onclick: async () => {
+    testBtn.disabled = true;
+    try { await micTest(!testing()); } catch (e) { fail(e); }
+    testBtn.disabled = false;
+  } });
+
+  let alive = true;
+  cleanups.push(() => { alive = false; micTest(false); });
+  const tick = () => {
+    if (!alive) return;
+    requestAnimationFrame(tick);
+    if (!meter.isConnected) return;
+    const L = micLevel();
+    const on = testing();
+    testBtn.textContent = on ? 'Test beenden' : 'Mikrofon testen';
+    testBtn.classList.toggle('primary', !on);
+    if (L) {
+      fill.style.width = at(L.level);
+      fill.classList.toggle('open', L.open);
+      mark.style.left = at(L.th);
+      mark.hidden = false;
+      meterNote.textContent = on ? 'Sprich etwas – du hörst dich selbst. Grün heißt: Das kommt bei den anderen an.' : 'Pegel deines Mikrofons im laufenden Anruf. Grün heißt: Das kommt bei den anderen an.';
+    } else {
+      fill.style.width = '0';
+      mark.style.left = at(prefs.vadTh);
+      mark.hidden = prefs.vadAuto !== false;
+      meterNote.textContent = 'Starte den Test, um zu sehen, wie laut dein Mikrofon ist. Am besten mit Kopfhörern.';
+    }
+  };
+  requestAnimationFrame(tick);
+
+  return [
+    h('div', { class: 'split' },
+      h('label', { class: 'field grow' }, h('span', null, 'Eingabegerät (Mikrofon)'), micSel),
+      h('label', { class: 'field grow' }, h('span', null, 'Ausgabegerät (Lautsprecher, Kopfhörer)'), outSel)),
+    h('div', { class: 'row' }, namesBtn),
+    noSink && h('p', { class: 'sub' }, 'Dieser Browser kann das Ausgabegerät nicht wechseln. In der Desktop-App geht es.'),
+    h('div', { class: 'split' }, slider('inVol', 2, 'Eingabelautstärke'), slider('outVol', 1, 'Ausgabelautstärke')),
+
+    h('h4', null, 'Mikrofontest'),
+    h('div', { class: 'row' }, testBtn, meterNote),
+
+    h('h4', null, 'Eingabeempfindlichkeit'),
+    settingsCheck('Automatisch einstellen', 'vadAuto', () => { syncVad(); applyAudio(); }),
+    vadWrap,
+    h('p', { class: 'sub' }, 'Alles unterhalb der gelben Markierung wird nicht übertragen – so hört niemand deine Tastatur oder den Lüfter. Schalte „Automatisch“ aus und zieh den Regler, um die Schwelle selbst festzulegen.'),
+
+    h('h4', null, 'Sprachverarbeitung'),
+    settingsCheck('Hintergrundgeräusche unterdrücken', 'ns', () => reloadMic().catch(fail)),
+    settingsCheck('Echo unterdrücken (wichtig ohne Kopfhörer)', 'ec', () => reloadMic().catch(fail)),
+    settingsCheck('Mikrofonlautstärke automatisch anpassen', 'agc', () => reloadMic().catch(fail)),
+    h('p', { class: 'sub' }, 'Änderungen gelten sofort, auch mitten im Anruf. Die Lautstärke einzelner Leute stellst du im Sprachchat per Klick auf ihren Namen ein.'),
+
+    h('h4', null, 'Bildschirm teilen'),
+    h('label', { class: 'field' }, h('span', null, 'Bildrate'),
+      settingsSel(String(prefs.fps), [['15', '15 Bilder/s – spart Leistung und Bandbreite'], ['30', '30 Bilder/s – Standard'], ['60', '60 Bilder/s – flüssig, für Spiele']], (v) => { prefs.fps = Number(v); savePrefs(); })),
+    h('p', { class: 'sub' }, 'Gilt ab dem nächsten Mal, wenn du deinen Bildschirm teilst.'),
+  ];
+}
+
+function notifyPage() {
+  return [
+    h('label', { class: 'field' }, h('span', null, 'In Gruppen benachrichtigen bei'),
+      settingsSel(prefs.groupNotify, [['all', 'allen Nachrichten'], ['mentions', 'Erwähnungen und Antworten'], ['none', 'nichts']], (v) => { prefs.groupNotify = v; savePrefs(); })),
+    settingsCheck('Töne abspielen (Nachrichten, Anrufe, Betreten und Verlassen im Sprachchat)', 'sound'),
+    h('p', { class: 'sub' }, 'Direktnachrichten melden sich immer. Mit dem Status „Nicht stören“ bleibt alles still.'),
+  ];
+}
+
+function accountPage() {
+  const me = S.me;
   const oldPw = h('input', { class: 'in', type: 'password', autocomplete: 'current-password' });
   const newPw = h('input', { class: 'in', type: 'password', autocomplete: 'new-password' });
-  const sel = (value, options, onchange) => {
-    const s = h('select', { class: 'in', onchange: () => onchange(s.value) }, options.map(([v, l]) => h('option', { value: v }, l)));
-    s.value = value;
-    return s;
-  };
-  const check = (label, key) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: prefs[key], onchange: (e) => { prefs[key] = e.target.checked; savePrefs(); } }), label);
-  let devices = [];
-  try { devices = await navigator.mediaDevices.enumerateDevices(); } catch {}
-  const devs = (kind) => [['', 'Standardgerät'], ...devices.filter((d) => d.kind === kind && d.deviceId && d.deviceId !== 'default').map((d, i) => [d.deviceId, d.label || `Gerät ${i + 1}`])];
-  const version = h('span', { class: 'sub' }, isApp ? '' : 'Web-Version');
-  const auto = h('input', { type: 'checkbox', onchange: () => invoke('autostart_set', { enabled: auto.checked }).catch((e) => { auto.checked = !auto.checked; fail(e); }) });
-  if (isApp) {
-    invoke('app_version').then((v) => (version.textContent = 'Version ' + v)).catch(() => {});
-    invoke('autostart_get').then((v) => (auto.checked = !!v)).catch(() => {});
-  }
+  return [
+    h('p', { class: 'sub' }, 'Angemeldet als @' + me.username),
+    h('form', { class: 'split', onsubmit: (e) => {
+      e.preventDefault();
+      req('password.change', { old: oldPw.value, new: newPw.value }).then((r) => {
+        if (r.token) setToken(r.token); // alle anderen Geräte wurden abgemeldet, dieses bleibt angemeldet
+        oldPw.value = newPw.value = '';
+        toast('Passwort geändert. Andere Geräte wurden abgemeldet.');
+      }, fail);
+    } },
+      h('label', { class: 'field grow' }, h('span', null, 'Aktuelles Passwort'), oldPw), h('label', { class: 'field grow' }, h('span', null, 'Neues Passwort'), newPw),
+      h('button', { class: 'btn' }, 'Passwort ändern')),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', type: 'button', onclick: () => { closeModal(); logout(); } }, 'Abmelden'),
+      h('button', { class: 'btn danger', type: 'button', onclick: deleteAccountDialog }, 'Konto löschen')),
+  ];
+}
 
-  modal('Einstellungen', [
-    h('section', null, h('h3', null, 'Profil'),
-      h('form', { onsubmit: (e) => { e.preventDefault(); req('profile.update', { display: display.value, custom: custom.value, color }).then(() => toast('Profil gespeichert'), fail); } },
-        h('div', { class: 'split' }, h('label', { class: 'field grow' }, h('span', null, 'Anzeigename'), display), h('label', { class: 'field grow' }, h('span', null, 'Status-Text'), custom)),
-        h('div', { class: 'field' }, h('span', null, 'Farbe'), swatches),
-        h('div', { class: 'row' }, pick, h('button', { class: 'btn primary' }, 'Profil speichern'),
-          h('button', { class: 'btn', type: 'button', onclick: () => pick.click() }, 'Profilbild ändern'),
-          me.avatar && h('button', { class: 'btn', type: 'button', onclick: () => req('profile.update', { avatar: null }).then(() => toast('Profilbild entfernt'), fail) }, 'Bild entfernen')))),
-    h('section', null, h('h3', null, 'Benachrichtigungen'),
-      h('label', { class: 'field' }, h('span', null, 'In Gruppen benachrichtigen bei'),
-        sel(prefs.groupNotify, [['all', 'allen Nachrichten'], ['mentions', 'Erwähnungen und Antworten'], ['none', 'nichts']], (v) => { prefs.groupNotify = v; savePrefs(); })),
-      check('Töne abspielen', 'sound'),
-      h('p', { class: 'sub' }, 'Direktnachrichten melden sich immer. Mit dem Status „Nicht stören“ bleibt alles still.')),
-    h('section', null, h('h3', null, 'Sprache'),
-      h('div', { class: 'split' },
-        h('label', { class: 'field grow' }, h('span', null, 'Mikrofon'), sel(prefs.mic, devs('audioinput'), (v) => { prefs.mic = v; savePrefs(); })),
-        h('label', { class: 'field grow' }, h('span', null, 'Lautsprecher'), sel(prefs.out, devs('audiooutput'), (v) => { prefs.out = v; savePrefs(); setOutput(v); }))),
-      check('Hintergrundgeräusche unterdrücken', 'ns'),
-      h('p', { class: 'sub' }, 'Ein anderes Mikrofon gilt ab dem nächsten Anruf. Gerätenamen erscheinen erst, nachdem du einmal im Sprachchat warst.')),
-    h('section', null, h('h3', null, 'Konto'),
-      h('p', { class: 'sub' }, 'Angemeldet als @' + me.username),
-      h('form', { class: 'split', onsubmit: (e) => {
-        e.preventDefault();
-        req('password.change', { old: oldPw.value, new: newPw.value }).then((r) => {
-          if (r.token) setToken(r.token); // alle anderen Geräte wurden abgemeldet, dieses bleibt angemeldet
-          oldPw.value = newPw.value = '';
-          toast('Passwort geändert. Andere Geräte wurden abgemeldet.');
-        }, fail);
-      } },
-        h('label', { class: 'field grow' }, h('span', null, 'Aktuelles Passwort'), oldPw), h('label', { class: 'field grow' }, h('span', null, 'Neues Passwort'), newPw),
-        h('button', { class: 'btn' }, 'Passwort ändern')),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn', type: 'button', onclick: () => { closeModal(); logout(); } }, 'Abmelden'),
-        h('button', { class: 'btn danger', type: 'button', onclick: deleteAccountDialog }, 'Konto löschen'))),
-    isApp && h('section', null, h('h3', null, 'App'),
-      h('label', { class: 'check' }, auto, 'PeterCord mit Windows starten (unauffällig im Infobereich)'),
-      h('p', { class: 'sub' }, 'Das Schließen-Kreuz versteckt PeterCord nur. Ganz beenden geht per Rechtsklick auf das Symbol im Infobereich.'),
-      h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => checkUpdate('manual') }, 'Nach Updates suchen'), version)),
-    !isApp && h('section', null, h('h3', null, 'Desktop-App'),
+function appPage() {
+  const version = h('span', { class: 'sub' }, isApp ? '' : 'Web-Version');
+  if (!isApp) {
+    return [
       h('p', { class: 'sub' }, 'Als Windows-App liegt PeterCord im Infobereich und meldet neue Nachrichten zuverlässig.'),
-      h('a', { class: 'btn primary', href: DOWNLOAD_URL, target: '_blank', rel: 'noopener' }, 'Für Windows herunterladen')),
-    !isApp && version,
-  ], { wide: true });
+      h('div', { class: 'row' }, h('a', { class: 'btn primary', href: DOWNLOAD_URL, target: '_blank', rel: 'noopener' }, 'Für Windows herunterladen'), version),
+    ];
+  }
+  const auto = h('input', { type: 'checkbox', onchange: () => invoke('autostart_set', { enabled: auto.checked }).catch((e) => { auto.checked = !auto.checked; fail(e); }) });
+  invoke('app_version').then((v) => (version.textContent = 'Version ' + v)).catch(() => {});
+  invoke('autostart_get').then((v) => (auto.checked = !!v)).catch(() => {});
+  return [
+    h('label', { class: 'check' }, auto, 'PeterCord mit Windows starten (unauffällig im Infobereich)'),
+    h('p', { class: 'sub' }, 'Das Schließen-Kreuz versteckt PeterCord nur. Ganz beenden geht per Rechtsklick auf das Symbol im Infobereich.'),
+    h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => checkUpdate('manual') }, 'Nach Updates suchen'), version),
+  ];
 }
 
 function deleteAccountDialog() {
