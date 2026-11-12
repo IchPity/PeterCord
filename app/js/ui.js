@@ -44,6 +44,8 @@ const PATHS = {
   out: 'M10 4H5v16h5M14 8l4 4-4 4M18 12H9',
   down: 'M12 4v12M7 11l5 5 5-5M5 20h14',
   chev: 'M6 9l6 6 6-6',
+  palette: 'M12 3a9 9 0 1 0 0 18c.9 0 1.5-.7 1.5-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.300-4-7.800-9-7.800zM7.500 12.500h.01M9 8h.01M14.500 7.500h.01M17.500 11h.01',
+  alert: 'M12 4l9.500 16h-19zM12 10v4M12 17h.01',
 };
 
 export function icon(name, size = 20) {
@@ -81,10 +83,36 @@ export function iconBtn(name, label, onclick, cls = '') {
   return h('button', { class: 'ib ' + cls, title: label, 'aria-label': label, onclick, type: 'button' }, icon(name));
 }
 
+// Entfernt ein Element mit einer Ausblend-Animation (Klasse .out im CSS). Sind Animationen aus,
+// verschwindet es sofort – sonst bliebe es eingefroren stehen, bis die Zeit abgelaufen ist.
+export function leave(el) {
+  if (!el?.isConnected || el.classList.contains('out')) return;
+  el.classList.add('out');
+  const anim = getComputedStyle(el).animationName;
+  if (!anim || anim === 'none') return el.remove();
+  const done = () => el.remove();
+  el.addEventListener('animationend', (e) => { if (e.target === el) done(); }, { once: true });
+  setTimeout(done, 400); // falls animationend ausbleibt (z. B. Fenster im Hintergrund)
+}
+
+// Schieberegler, dessen Spur links vom Knopf in der Akzentfarbe gefüllt ist (CSS-Variable --p).
+export function rangeInput(props) {
+  const r = h('input', { type: 'range', ...props });
+  const paint = () => {
+    const min = Number(r.min) || 0;
+    const max = r.max === '' ? 100 : Number(r.max);
+    r.style.setProperty('--p', (max > min ? ((Number(r.value) - min) / (max - min)) * 100 : 0) + '%');
+  };
+  r.addEventListener('input', paint);
+  r.paint = paint; // wer den Wert per Code ändert, ruft danach paint() auf
+  paint();
+  return r;
+}
+
 export function toast(text, kind = '') {
   const el = h('div', { class: 'toast ' + kind }, String(text));
   document.getElementById('toasts').append(el);
-  setTimeout(() => el.remove(), kind === 'bad' ? 6000 : 3500);
+  setTimeout(() => leave(el), kind === 'bad' ? 6000 : 3500);
 }
 export const fail = (e) => toast(e?.message || String(e), 'bad');
 
@@ -98,9 +126,11 @@ export function closePopover() {
 export function popover(anchor, content, { align = 'start', side = 'bottom' } = {}) {
   closePopover();
   const el = h('div', { class: 'pop', role: 'dialog' }, content);
+  el.style.animation = 'none'; // ohne die Einblend-Skalierung messen, sonst sitzt das Menü ein paar Pixel daneben
   layer().append(el);
   const a = anchor.getBoundingClientRect();
   const r = el.getBoundingClientRect();
+  el.style.animation = '';
   let x = align === 'end' ? a.right - r.width : a.left;
   let y = side === 'top' ? a.top - r.height - 6 : side === 'right' ? a.top : a.bottom + 6;
   if (side === 'right') x = a.right + 8;
@@ -109,9 +139,12 @@ export function popover(anchor, content, { align = 'start', side = 'bottom' } = 
   x = Math.max(8, Math.min(x, innerWidth - r.width - 8));
   el.style.left = x + 'px';
   el.style.top = Math.max(8, y) + 'px';
+  // Das Menü wächst aus der Ecke, an der es hängt.
+  el.style.transformOrigin = side === 'top' ? `${align === 'end' ? 'right' : 'left'} bottom`
+    : side === 'right' ? 'left top' : side === 'left' ? 'right top' : `${align === 'end' ? 'right' : 'left'} top`;
   const away = (e) => { if (!el.contains(e.target) && !anchor.contains(e.target)) close(); };
   const close = () => {
-    el.remove();
+    leave(el);
     document.removeEventListener('mousedown', away, true);
     if (popClose === close) popClose = null;
   };
@@ -158,7 +191,7 @@ export function modal(title, body, { wide = false, onClose } = {}) {
     const i = modals.indexOf(close);
     if (i < 0) return;
     modals.splice(i, 1);
-    back.remove();
+    leave(back);
     onClose?.();
     prev?.focus?.();
   };

@@ -1,11 +1,11 @@
 import { net, isApp, invoke, api, upload, fileUrl, req, connect, disconnect, setToken, setServer } from './net.js';
 import {
   h, icon, iconBtn, avatar, initials, toast, fail, popover, closePopover, menu, contextMenu, modal, closeModal, hasModal, ask, promptText,
-  emojiPicker, sound, clock, dayKey, dayLabel, size, markdown, STATUS,
+  emojiPicker, sound, clock, dayKey, dayLabel, size, markdown, STATUS, leave as fadeOut, rangeInput,
 } from './ui.js';
 import { DOWNLOAD_URL } from './config.js';
 import {
-  voice, join, leave, onRtc, onList, toggleMute, toggleDeaf, toggleScreen, setOutput, reloadMic, applyAudio, micTest, testing, micLevel,
+  voice, join, leave, onRtc, onList, toggleMute, toggleDeaf, toggleScreen, setOutput, reloadMic, applyAudio, micTest, testing, micLevel, micError,
 } from './voice.js';
 
 const root = document.getElementById('root');
@@ -31,10 +31,14 @@ const S = {
   built: false,
 };
 
+// Darstellung kommt aus js/look.js (läuft vor allem anderen, damit nichts aufblitzt).
+const LOOK = window.PCLook || { THEMES: [], ACCENTS: [], DEFAULTS: {}, apply() {} };
 const prefs = Object.assign({
   groupNotify: 'all', sound: true, mic: '', out: '', ns: true, ec: true, agc: true, inVol: 1, outVol: 1, vadAuto: true, vadTh: -50, vadSet: false, fps: 30, vol: {},
+  ...LOOK.DEFAULTS,
 }, JSON.parse(localStorage.getItem('pc_prefs') || '{}'));
 const savePrefs = () => localStorage.setItem('pc_prefs', JSON.stringify(prefs));
+const applyLook = () => LOOK.apply(prefs);
 voice.settings = () => prefs;
 voice.volumeOf = (cid) => {
   const p = (S.voice.get(voice.chat) || []).find((x) => x.cid === cid);
@@ -390,7 +394,7 @@ function userCard(u, anchor, group, side = 'left') {
     h('span', { class: 'sub' }, handle(u)),
     u.custom && h('p', null, u.custom),
     inMyCall && h('label', { class: 'field vol' }, h('span', null, 'Lautstärke im Sprachchat'),
-      h('input', { type: 'range', min: 0, max: 100, step: 5, value: Math.round((prefs.vol[u.id] ?? 1) * 100), oninput: (e) => {
+      rangeInput({ min: 0, max: 100, step: 5, value: Math.round((prefs.vol[u.id] ?? 1) * 100), oninput: (e) => {
         prefs.vol[u.id] = e.target.value / 100;
         savePrefs();
         applyVolumes();
@@ -727,7 +731,7 @@ function replaceMsg(m) {
 function jumpTo(id) {
   const el = E.list.querySelector(`.msg[data-id="${id}"]`);
   if (!el) return toast('Die Nachricht ist weiter oben. Scroll nach oben, um sie zu laden.');
-  el.scrollIntoView({ block: 'center' });
+  el.scrollIntoView({ block: 'center', behavior: document.documentElement.classList.contains('calm') ? 'auto' : 'smooth' });
   el.classList.add('flash');
   setTimeout(() => el.classList.remove('flash'), 1400);
 }
@@ -1050,7 +1054,7 @@ let ring = null;
 function stopRing() {
   if (!ring) return;
   clearInterval(ring.timer);
-  ring.el.remove();
+  fadeOut(ring.el);
   ring = null;
 }
 function showRing(chat, from) {
@@ -1078,6 +1082,7 @@ function settingsDialog(start = 'profile') {
   const cleanups = [];
   const pages = [
     ['profile', 'Profil', 'users', profilePage],
+    ['look', 'Darstellung', 'palette', lookPage],
     ['voice', 'Sprache & Video', 'mic', () => voicePage(cleanups)],
     ['notify', 'Benachrichtigungen', 'msg', notifyPage],
     ['account', 'Konto', 'edit', accountPage],
@@ -1090,6 +1095,7 @@ function settingsDialog(start = 'profile') {
     const page = pages.find((p) => p[0] === key) || pages[0];
     if (!built.has(page[0])) built.set(page[0], h('div', { class: 'set-page' }, h('h3', null, page[1]), page[3]()));
     pane.replaceChildren(built.get(page[0]));
+    pane.scrollTop = 0; // jeder Reiter beginnt oben, nicht dort, wo der vorige aufgehört hat
     nav.replaceChildren(...pages.map(([k, label, ic]) => h('button', {
       class: 'set-tab' + (k === page[0] ? ' on' : ''), type: 'button', role: 'tab', 'aria-selected': String(k === page[0]), onclick: () => show(k),
     }, icon(ic, 18), h('span', null, label))));
@@ -1134,6 +1140,96 @@ function profilePage() {
       me.avatar && h('button', { class: 'btn', type: 'button', onclick: () => req('profile.update', { avatar: null }).then(() => toast('Profilbild entfernt'), fail) }, 'Bild entfernen')));
 }
 
+// Darstellung: Alles wirkt sofort. Die Vorschau zeigt, wie Nachrichten aussehen, weil der Chat hinter dem Fenster verdeckt ist.
+function lookPage() {
+  const D = LOOK.DEFAULTS;
+  const set = (key, value) => { prefs[key] = value; savePrefs(); applyLook(); paint(); };
+  const radio = (on, el) => { el.classList.toggle('on', on); el.setAttribute('aria-checked', String(on)); };
+
+  // ---- Farbschema ----
+  const themeBtns = LOOK.THEMES.map(([key, name, c]) => {
+    const preview = h('span', { class: 'preview' + (c ? '' : ' system') });
+    if (c) {
+      preview.style.setProperty('--chip', c[2]);
+      preview.append(h('i', { style: { background: c[0] } }), h('i', { style: { background: c[1] } }));
+    }
+    return h('button', { class: 'theme-card', type: 'button', role: 'radio', data: { key }, onclick: () => set('theme', key) },
+      preview, h('span', { class: 'name' }, h('span', { class: 'cut' }, name), icon('check', 16)));
+  });
+
+  // ---- Akzentfarbe ----
+  const accentBtns = LOOK.ACCENTS.map(([color, name]) => h('button', {
+    type: 'button', role: 'radio', title: name, 'aria-label': name, data: { color }, style: { background: color }, onclick: () => set('accent', color),
+  }));
+  const custom = h('input', { type: 'color', value: prefs.accent, 'aria-label': 'Eigene Akzentfarbe', oninput: () => set('accent', custom.value) });
+  const customWrap = h('label', { class: 'swatch-custom', title: 'Eigene Farbe wählen' }, custom);
+
+  // ---- Nachrichten ----
+  const sizeVal = h('b');
+  const sizeIn = rangeInput({ min: 13, max: 20, step: 1, value: prefs.msgSize, 'aria-label': 'Schriftgröße der Nachrichten', oninput: () => set('msgSize', Number(sizeIn.value)) });
+  const friend = { display: 'Lena', color: '#8fb8ff' };
+  const fake = (u, time, text, first) => h('div', { class: 'msg' + (first ? ' first' : '') },
+    first && h('span', { class: 'msg-av' }, avatar(u, 38)),
+    first && h('div', { class: 'msg-meta' }, h('span', { class: 'author', style: { color: u.color } }, u.display), h('time', null, time)),
+    h('div', { class: 'content' }, markdown(text, mdCtx)));
+  const preview = h('div', { class: 'look-preview', 'aria-hidden': 'true' },
+    fake(friend, '19:42', `Hey @${S.me.username}, kommst du heute Abend noch in den Sprachchat?`, true),
+    fake(S.me, '19:44', 'Klar, ich bin um acht da 🎧', true),
+    h('div', { class: 'msg' }, h('div', { class: 'content' }, markdown('Bring **gute Laune** mit, ich hab `Snacks`.', mdCtx)),
+      h('div', { class: 'reacts' }, h('span', { class: 'react mine' }, '👍', h('b', null, '2')), h('span', { class: 'react' }, '😂', h('b', null, '1')))));
+
+  // ---- Umschalter ----
+  const segs = [];
+  const seg = (key, options, label) => {
+    const el = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': label }, options.map(([value, text]) =>
+      h('button', { type: 'button', role: 'radio', data: { value }, onclick: () => set(key, value) }, text)));
+    segs.push([el, key]);
+    return el;
+  };
+  const motion = h('input', { type: 'checkbox', onchange: () => set('motion', motion.checked) });
+
+  function paint() {
+    for (const b of themeBtns) radio(prefs.theme === b.dataset.key, b);
+    const known = accentBtns.some((b) => b.dataset.color === prefs.accent);
+    for (const b of accentBtns) radio(prefs.accent === b.dataset.color, b);
+    customWrap.classList.toggle('on', !known);
+    customWrap.style.background = known ? '' : prefs.accent;
+    if (custom.value !== prefs.accent) custom.value = prefs.accent;
+    sizeIn.value = prefs.msgSize;
+    sizeIn.paint();
+    sizeVal.textContent = prefs.msgSize + ' px' + (prefs.msgSize === D.msgSize ? ' · Standard' : '');
+    for (const [el, key] of segs) for (const b of el.children) radio(prefs[key] === b.dataset.value, b);
+    motion.checked = prefs.motion !== false;
+  }
+  paint();
+
+  return [
+    h('p', { class: 'sub' }, 'Änderungen gelten sofort und nur auf diesem Gerät.'),
+    h('h4', null, 'Farbschema'),
+    h('div', { class: 'themes', role: 'radiogroup', 'aria-label': 'Farbschema' }, themeBtns),
+    h('h4', null, 'Akzentfarbe'),
+    h('div', { class: 'swatches', role: 'radiogroup', 'aria-label': 'Akzentfarbe' }, accentBtns, customWrap),
+    h('p', { class: 'sub' }, 'Die Akzentfarbe färbt Knöpfe, Markierungen, Erwähnungen und die offene Gruppe.'),
+    h('h4', null, 'Nachrichten'),
+    preview,
+    h('label', { class: 'field range' }, h('span', null, 'Schriftgröße', sizeVal), sizeIn),
+    h('div', { class: 'look-row' }, h('span', null, 'Abstand', h('small', null, 'Kompakt zeigt mehr Nachrichten auf einmal.')),
+      seg('density', [['cozy', 'Gemütlich'], ['compact', 'Kompakt']], 'Abstand zwischen Nachrichten')),
+    h('h4', null, 'Oberfläche'),
+    h('div', { class: 'look-row' }, h('span', null, 'Ecken', h('small', null, 'Wie rund Knöpfe, Fenster und Bilder sind.')),
+      seg('corners', [['round', 'Rund'], ['soft', 'Dezent'], ['sharp', 'Eckig']], 'Ecken')),
+    h('label', { class: 'check' }, motion, 'Weiche Animationen'),
+    h('p', { class: 'sub' }, 'Sind in Windows die Animationseffekte ausgeschaltet, bewegt sich auch PeterCord nicht.'),
+    h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => {
+      for (const k of Object.keys(D)) prefs[k] = D[k];
+      savePrefs();
+      applyLook();
+      paint();
+      toast('Darstellung zurückgesetzt');
+    } }, 'Auf Standard zurücksetzen')),
+  ];
+}
+
 function voicePage(cleanups) {
   // ---- Geräte ----
   const micSel = h('select', { class: 'in', onchange: async () => {
@@ -1142,15 +1238,50 @@ function voicePage(cleanups) {
     try { await reloadMic(); } catch (e) { fail(e); }
   } });
   const outSel = h('select', { class: 'in', onchange: () => { prefs.out = outSel.value; savePrefs(); setOutput(outSel.value); } });
-  const namesBtn = h('button', { class: 'btn', type: 'button', hidden: true, onclick: async () => {
+  // ---- Mikrofonzugriff ----
+  // Wer die Anfrage beim ersten Mal abgelehnt hat, kann den Zugriff hier jederzeit nachträglich erlauben.
+  const accessTitle = h('strong');
+  const accessText = h('p');
+  const accessBtn = h('button', { class: 'btn primary', type: 'button', onclick: async () => {
+    accessBtn.disabled = true;
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: true });
       s.getTracks().forEach((t) => t.stop());
-      fillDevices();
       toast('Mikrofonzugriff erlaubt');
-    } catch { toast('Der Zugriff ist noch gesperrt. Erlaube PeterCord das Mikrofon in den Windows-Einstellungen unter Datenschutz und Sicherheit → Mikrofon.', 'bad'); }
+    } catch (e) { toast(micError(e, true), 'bad'); }
+    accessBtn.disabled = false;
+    fillDevices();
   } }, 'Mikrofonzugriff erlauben');
-  const accessNote = h('p', { class: 'sub', hidden: true }, 'Den Zugriff hast du beim ersten Mal vielleicht abgelehnt. Hier kannst du ihn jederzeit nachträglich erlauben. Geräte und Lautstärken erscheinen danach.');
+  const accessBox = h('div', { class: 'access', hidden: true }, icon('alert', 22), h('div', { class: 'grow cut2' }, accessTitle, accessText), accessBtn);
+  // Die Berechtigung kann sich auch außerhalb ändern (Browser-Schloss, Windows-Einstellungen) – dann sofort neu anzeigen.
+  let perm = null;
+  navigator.permissions?.query({ name: 'microphone' }).then((p) => {
+    perm = p;
+    p.onchange = () => fillDevices();
+    cleanups.push(() => { p.onchange = null; });
+    fillDevices();
+  }).catch(() => {});
+  function paintAccess(list) {
+    const mics = list.filter((d) => d.kind === 'audioinput');
+    const state = perm?.state;
+    // Ohne Zugriff liefert der Browser keine Gerätenamen – das ist der Hinweis, falls die Berechtigungs-Abfrage fehlt.
+    const granted = state === 'granted' || list.some((d) => d.label);
+    const denied = state === 'denied';
+    accessBox.classList.toggle('bad', denied);
+    if (!granted) {
+      accessTitle.textContent = denied ? 'Mikrofonzugriff abgelehnt' : 'PeterCord darf dein Mikrofon noch nicht benutzen';
+      accessText.textContent = denied
+        ? 'Kein Problem, das lässt sich ändern: Klick auf den Knopf. Fragt PeterCord nicht nach, gib das Mikrofon in den Windows-Einstellungen frei (Datenschutz und Sicherheit → Mikrofon).'
+        : 'Ohne Zugriff hören dich die anderen im Sprachchat nicht, und die Gerätenamen bleiben leer.';
+      accessBtn.textContent = denied ? 'Erneut versuchen' : 'Mikrofonzugriff erlauben';
+      accessBtn.hidden = false;
+    } else if (!mics.length) {
+      accessTitle.textContent = 'Kein Mikrofon gefunden';
+      accessText.textContent = 'Schließ ein Mikrofon oder Headset an. Es erscheint dann sofort hier.';
+      accessBtn.hidden = true;
+    }
+    accessBox.hidden = granted && mics.length > 0;
+  }
   async function fillDevices() {
     let list = [];
     try { list = await navigator.mediaDevices.enumerateDevices(); } catch {}
@@ -1163,10 +1294,7 @@ function voicePage(cleanups) {
     if (micSel.value !== prefs.mic) micSel.value = '';
     outSel.value = prefs.out;
     if (outSel.value !== prefs.out) outSel.value = '';
-    // Ohne Zugriff liefert der Browser keine Gerätenamen – dann bietet die Seite den Zugriff erneut an.
-    const granted = list.some((d) => d.label);
-    namesBtn.hidden = granted;
-    accessNote.hidden = granted;
+    paintAccess(list);
   }
   fillDevices();
   const onDevices = () => fillDevices();
@@ -1177,7 +1305,7 @@ function voicePage(cleanups) {
   // ---- Lautstärken ----
   const slider = (key, max, label) => {
     const val = h('b', null, pct(prefs[key]));
-    const r = h('input', { type: 'range', min: 0, max, step: 0.05, value: prefs[key], 'aria-label': label, oninput: () => {
+    const r = rangeInput({ min: 0, max, step: 0.05, value: prefs[key], 'aria-label': label, oninput: () => {
       prefs[key] = Number(r.value);
       val.textContent = pct(prefs[key]);
       savePrefs();
@@ -1196,7 +1324,7 @@ function voicePage(cleanups) {
   const meterNote = h('small', { class: 'sub' });
   const thVal = h('b', null, '');
   const vadHint = h('p', { class: 'sub' });
-  const vad = h('input', { type: 'range', min: -DB, max: 0, step: 1, value: prefs.vadTh, 'aria-label': 'Schwelle der Eingabeempfindlichkeit', oninput: () => {
+  const vad = rangeInput({ min: -DB, max: 0, step: 1, value: prefs.vadTh, 'aria-label': 'Schwelle der Eingabeempfindlichkeit', oninput: () => {
     prefs.vadTh = Number(vad.value);
     prefs.vadSet = true;
     savePrefs();
@@ -1213,11 +1341,12 @@ function voicePage(cleanups) {
       savePrefs();
     }
     vad.value = prefs.vadTh;
+    vad.paint();
     vad.hidden = auto;
     vadWrap.classList.toggle('auto', auto);
     vadHint.textContent = auto
-      ? 'PeterCord erkennt deine Stimme und stellt sich laufend auf die Umgebung ein: Lüfter, Tastatur und Mausklicks bleiben draußen, leise Wortanfänge kommen trotzdem an. Die gelbe Markierung zeigt, ab welchem Pegel die Automatik gerade hinhört.'
-      : 'Alles unterhalb der gelben Markierung wird nicht übertragen. Zieh den Regler knapp über den Pegel, den die Anzeige zeigt, wenn du nichts sagst. Eine feste Schwelle erkennt keine Sprache – laute Tastenklicks kommen durch.';
+      ? 'PeterCord erkennt deine Stimme und stellt sich laufend auf die Umgebung ein: Lüfter, Tastatur und Mausklicks bleiben draußen, leise Wortanfänge kommen trotzdem an. Die farbige Markierung zeigt, ab welchem Pegel die Automatik gerade hinhört.'
+      : 'Alles unterhalb der farbigen Markierung wird nicht übertragen. Zieh den Regler knapp über den Pegel, den die Anzeige zeigt, wenn du nichts sagst. Eine feste Schwelle erkennt keine Sprache – laute Tastenklicks kommen durch.';
   };
   syncVad();
   const testBtn = h('button', { class: 'btn', type: 'button', onclick: async () => {
@@ -1258,11 +1387,10 @@ function voicePage(cleanups) {
   requestAnimationFrame(tick);
 
   return [
+    accessBox,
     h('div', { class: 'split' },
       h('label', { class: 'field grow' }, h('span', null, 'Eingabegerät (Mikrofon)'), micSel),
       h('label', { class: 'field grow' }, h('span', null, 'Ausgabegerät (Lautsprecher, Kopfhörer)'), outSel)),
-    h('div', { class: 'row' }, namesBtn),
-    accessNote,
     noSink && h('p', { class: 'sub' }, 'Dieser Browser kann das Ausgabegerät nicht wechseln. In der Desktop-App geht es.'),
     h('div', { class: 'split' }, slider('inVol', 2, 'Eingabelautstärke'), slider('outVol', 1, 'Ausgabelautstärke')),
 
@@ -1392,7 +1520,7 @@ async function checkUpdate(mode = 'timer') {
     const btn = h('button', { class: 'btn primary', type: 'button', onclick: () => installUpdate(btn) }, 'Jetzt aktualisieren');
     document.getElementById('layer').append(h('div', { class: 'update' },
       h('span', { class: 'grow' }, h('strong', null, `PeterCord ${up.version} ist da. `), 'Das Update dauert nur einen Moment.'), btn,
-      iconBtn('x', 'Später', (e) => e.currentTarget.parentNode.remove())));
+      iconBtn('x', 'Später', (e) => fadeOut(e.currentTarget.parentNode))));
   } catch (e) {
     if (mode === 'manual') toast('Die Update-Suche ist fehlgeschlagen: ' + e, 'bad');
   }
@@ -1528,7 +1656,9 @@ function onEvent(m) {
           const stick = S.stick || msg.user === S.me.id;
           E.list.querySelector('.hint')?.remove();
           if (!prev || dayKey(prev.created) !== dayKey(msg.created)) E.list.append(h('div', { class: 'day' }, h('span', null, dayLabel(msg.created))));
-          E.list.append(msgEl(msg, prev));
+          const el = msgEl(msg, prev);
+          el.classList.add('new'); // nur live eintreffende Nachrichten blenden sanft ein, nicht der ganze Verlauf
+          E.list.append(el);
           if (stick) { toBottom(); S.stick = true; }
         }
       }

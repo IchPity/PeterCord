@@ -158,9 +158,23 @@ async function rawMic() {
   if (s.mic) audio.deviceId = { ideal: s.mic };
   try {
     return await navigator.mediaDevices.getUserMedia({ audio, video: false });
-  } catch {
-    throw new Error('Kein Zugriff auf das Mikrofon. Erlaube den Zugriff und prüfe, ob ein Mikrofon angeschlossen ist. Nachträglich erlauben kannst du das unter Einstellungen → Sprache & Video.');
+  } catch (e) {
+    throw new Error(micError(e));
   }
+}
+
+// Verständliche Meldung, warum das Mikrofon nicht aufgeht. inSettings: Die Meldung erscheint schon in den Sprach-Einstellungen.
+export function micError(e, inSettings = false) {
+  const n = e?.name;
+  if (n === 'NotAllowedError' || n === 'SecurityError') {
+    return (inSettings ? 'Der Zugriff ist noch gesperrt.' : 'PeterCord darf dein Mikrofon nicht benutzen. Erlauben kannst du es unter Einstellungen → Sprache & Video.')
+      + ' Fragt PeterCord nicht mehr nach, gib das Mikrofon in den Windows-Einstellungen frei: Datenschutz und Sicherheit → Mikrofon.';
+  }
+  if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'Kein Mikrofon gefunden. Schließ ein Mikrofon oder Headset an.';
+  if (n === 'NotReadableError' || n === 'AbortError') {
+    return 'Das Mikrofon ist gerade blockiert – vielleicht benutzt es ein anderes Programm. Schließ das Programm oder wähl unter Einstellungen → Sprache & Video ein anderes Gerät.';
+  }
+  return 'Kein Zugriff auf das Mikrofon. Erlaube den Zugriff und prüfe, ob ein Mikrofon angeschlossen ist.';
 }
 
 function micParams(m) {

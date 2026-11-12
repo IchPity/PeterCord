@@ -48,6 +48,8 @@ dem Knopf **Jetzt aktualisieren**. Du musst nie wieder etwas herunterladen.
 - **Das Kreuz schließt nur das Fenster.** PeterCord läuft im Infobereich neben der Uhr weiter und meldet neue
   Nachrichten. Ein roter Punkt am Symbol heißt: Da ist etwas Ungelesenes. Ganz beenden: Rechtsklick auf das Symbol → *Beenden*.
 - **Mit Windows starten:** *Einstellungen* (Regler-Symbol unten links) → *App* → Häkchen setzen.
+- **Aussehen anpassen:** *Einstellungen* → *Darstellung*: Farbschema (auch hell oder wie Windows), Akzentfarbe,
+  Schriftgröße und Abstand der Nachrichten, Ecken und Animationen.
 - **Ruhe haben:** Klick unten links auf deinen Namen und stell den Status auf *Nicht stören* – dann bleibt alles still.
 - **Ohne Installation:** PeterCord läuft auch im Browser unter <https://petercord.hakwt.workers.dev>, zum Beispiel am Handy.
 - **Deinstallieren:** Windows-Einstellungen → Apps → PeterCord → Deinstallieren.
@@ -56,7 +58,7 @@ dem Knopf **Jetzt aktualisieren**. Du musst nie wieder etwas herunterladen.
 
 | Problem | Lösung |
 | --- | --- |
-| Niemand hört mich | Windows-Einstellungen → Datenschutz und Sicherheit → Mikrofon: Zugriff für Desktop-Apps erlauben. In PeterCord unter *Einstellungen → Sprache* das richtige Mikrofon wählen. |
+| Niemand hört mich | Mikrofon-Anfrage aus Versehen abgelehnt? Unter *Einstellungen → Sprache & Video* auf *Mikrofonzugriff erlauben* klicken. Hilft das nicht: Windows-Einstellungen → Datenschutz und Sicherheit → Mikrofon: Zugriff für Desktop-Apps erlauben. Und in PeterCord das richtige Mikrofon wählen. |
 | Ich höre niemanden | Unter *Einstellungen → Sprache* den richtigen Lautsprecher wählen und prüfen, ob das Kopfhörer-Symbol unten links durchgestrichen ist. |
 | Der Anruf verbindet nicht | Sprache läuft direkt von Gerät zu Gerät. In manchen Firmen-, Schul- oder Mobilfunknetzen wird das blockiert – probier ein anderes Netz. |
 | „Keine Verbindung zum Server“ | Internetverbindung prüfen. PeterCord verbindet sich von selbst wieder. |
