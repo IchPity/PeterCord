@@ -1,6 +1,6 @@
 {
   "name": "petercord",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "PeterCord – schlanker Chat für Freunde: Direktnachrichten, Gruppen, Sprachchat.",
   "type": "module",
