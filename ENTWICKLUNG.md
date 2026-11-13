@@ -37,7 +37,7 @@ Hat sich etwas im Ordner `server/` geändert, zusätzlich den Server ausrollen �
 npm run deploy:server
 ```
 
-Das aktualisiert auch die Web-Version unter <https://petercord.hakwt.workers.dev>, denn der Worker liefert den Ordner `app/` mit aus.
+Das aktualisiert auch die Download-Seite unter <https://petercord.hakwt.workers.dev> (Ordner `server/public/`). Die Oberfläche selbst steckt in der Desktop-App, der Worker liefert sie nicht mehr aus.
 
 ## Zwei Dateien, die du sichern musst
 
@@ -92,7 +92,7 @@ npm install
 npx wrangler dev --port 8799
 ```
 
-Dann im Browser <http://127.0.0.1:8799> öffnen – oder in der App auf dem Anmeldebildschirm unter
+Dann ist unter <http://127.0.0.1:8799> die Download-Seite zu sehen. Zum Ausprobieren der Oberfläche die App starten (`npm run dev`) und auf dem Anmeldebildschirm unter
 *Anderen Server verwenden* diese Adresse eintragen. Die lokale Datenbank liegt in `server/.wrangler/` und hat nichts
 mit der echten zu tun.
 

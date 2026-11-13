@@ -600,3 +600,37 @@ video.shot { cursor: auto; }
   .set-nav { width: auto; flex-direction: row; overflow-x: auto; }
   .set-tab span { white-space: nowrap; }
 }
+
+/* ---------- Foto-Hintergrund & Quatsch ---------- */
+#bg {
+  position: fixed; inset: 0; z-index: 0; background: #1a0d12 url("kroko.jpg") center 30% / cover no-repeat;
+  transform: scale(1.03); transition: opacity .3s var(--ease);
+}
+#bg::after { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--rail) 38%, transparent); }
+[data-photo="off"] #bg { display: none; }
+#root { position: relative; z-index: 1; }
+
+/* Flächen werden durchscheinend, das Foto schimmert durch (Stärke = --veil) */
+[data-photo="on"] .rail { background: color-mix(in srgb, var(--rail) calc(var(--veil) * 1% + 12%), transparent); backdrop-filter: blur(14px); }
+[data-photo="on"] .side, [data-photo="on"] .members { background: color-mix(in srgb, var(--side) calc(var(--veil) * 1% + 6%), transparent); backdrop-filter: blur(14px); }
+[data-photo="on"] .side-head { background: transparent; }
+[data-photo="on"] .main { background: color-mix(in srgb, var(--bg) calc(var(--veil) * 1%), transparent); backdrop-filter: blur(2px); }
+[data-photo="on"] .user-panel { background: color-mix(in srgb, var(--rail) 70%, transparent); }
+[data-photo="on"] .auth { background: radial-gradient(900px 560px at 50% 40%, transparent 0%, color-mix(in srgb, var(--rail) 55%, transparent) 100%); }
+[data-photo="on"] .auth-card { background: color-mix(in srgb, var(--side) 74%, transparent); backdrop-filter: blur(16px) saturate(1.2); }
+[data-photo="on"] .day span { background: color-mix(in srgb, var(--bg) 80%, transparent); }
+
+.tagline { color: var(--dim); font-size: 14px; margin: -16px 0 20px; font-style: italic; }
+.brand img { transition: transform .5s var(--ease); cursor: pointer; }
+.brand img:hover { transform: rotate(-12deg) scale(1.08); }
+.brand img.spin { animation: spin .8s var(--ease); }
+.sticker {
+  position: fixed; left: 22px; bottom: 20px; z-index: 2; transform: rotate(-3deg); background: var(--toast-bg); color: var(--toast-ink);
+  padding: 6px 12px; border-radius: var(--r-xs); font: 700 13px var(--display); box-shadow: 0 8px 22px -6px var(--shadow);
+  animation: rise .6s var(--ease) .3s backwards; pointer-events: none;
+}
+.hello { font: 700 26px var(--display); font-stretch: 85%; margin-bottom: 16px; }
+.hello small { display: block; font: 400 14px var(--body); color: var(--dim); margin-top: 2px; }
+.look-row input[type="range"] { max-width: 220px; }
+@keyframes spin { to { transform: rotate(360deg) scale(1.2); } }
+@media (max-width: 720px) { .sticker { display: none; } }

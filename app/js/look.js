@@ -23,7 +23,7 @@
     ['#5fd4e0', 'Türkis'],
     ['#7ad7a1', 'Minze'],
   ];
-  var DEFAULTS = { theme: 'wald', accent: '#f2d95c', msgSize: 15, density: 'cozy', corners: 'round', motion: true };
+  var DEFAULTS = { theme: 'wald', accent: '#f2d95c', msgSize: 15, density: 'cozy', corners: 'round', motion: true, photo: true, veil: 62 };
 
   var dark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   var last = DEFAULTS;
@@ -63,6 +63,8 @@
     root.dataset.density = p.density === 'compact' ? 'compact' : 'cozy';
     root.dataset.corners = p.corners === 'soft' || p.corners === 'sharp' ? p.corners : 'round';
     root.classList.toggle('calm', p.motion === false);
+    root.dataset.photo = p.photo === false ? 'off' : 'on';
+    root.style.setProperty('--veil', String(Math.min(95, Math.max(40, Number(p.veil) || DEFAULTS.veil))));
     var light = theme === 'hell';
     var meta = document.querySelector('meta[name="color-scheme"]');
     if (meta) meta.content = light ? 'light' : 'dark';

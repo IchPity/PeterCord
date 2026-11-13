@@ -4,6 +4,7 @@ import {
   emojiPicker, sound, clock, dayKey, dayLabel, size, markdown, STATUS, leave as fadeOut, rangeInput,
 } from './ui.js';
 import { DOWNLOAD_URL } from './config.js';
+import * as fun from './fun.js';
 import {
   voice, join, leave, onRtc, onList, toggleMute, toggleDeaf, toggleScreen, setOutput, reloadMic, applyAudio, micTest, testing, micLevel, micError,
 } from './voice.js';
@@ -87,6 +88,18 @@ const mentionsMe = (m) =>
 // ======================================================================
 // Anmeldung
 // ======================================================================
+// Logo: fünfmal draufklicken ergibt eine Überraschung.
+function logo(px = 44) {
+  let n = 0;
+  const img = h('img', { src: 'icon.svg', alt: '', width: px, height: px, onclick: () => {
+    img.classList.remove('spin');
+    void img.offsetWidth;
+    img.classList.add('spin');
+    if (++n >= 5) { n = 0; fun.confetti({ count: 200 }); toast('Du hast das Geheimnis gefunden. Es gibt keins. 🎉'); }
+  } });
+  return img;
+}
+
 async function showAuth(note) {
   S.built = false;
   setUnread(0);
@@ -123,7 +136,8 @@ async function showAuth(note) {
       }
     },
   },
-    h('div', { class: 'brand' }, h('img', { src: 'icon.svg', alt: '', width: 44, height: 44 }), h('span', null, 'PeterCord')),
+    h('div', { class: 'brand' }, logo(), h('span', null, 'PeterCord')),
+    h('p', { class: 'tagline' }, fun.tagline()),
     title,
     h('label', { class: 'field' }, h('span', null, 'Benutzername'), user),
     fDisplay,
@@ -142,7 +156,7 @@ async function showAuth(note) {
     pass.autocomplete = reg ? 'new-password' : 'current-password';
   }
   paint();
-  root.replaceChildren(h('div', { class: 'auth' }, form));
+  root.replaceChildren(h('div', { class: 'auth' }, form, h('div', { class: 'sticker' }, '📸 Beweisfoto Nr. 1')));
   user.focus();
   api('/api/info').then((i) => { needCode = !!i.code; paint(); }).catch(() => {});
 }
@@ -526,7 +540,7 @@ function renderMain() {
   E.files = h('div', { class: 'pending', hidden: true });
   E.input = h('textarea', {
     class: 'input', rows: 1, maxLength: 4000,
-    placeholder: meta.type === 'dm' ? `Nachricht an ${meta.name}` : `Nachricht in #${meta.name}`,
+    placeholder: fun.placeholder(meta.type === 'dm' ? `Nachricht an ${meta.name}` : `Nachricht in #${meta.name}`),
     oninput: () => { grow(); sendTyping(); },
     onkeydown: (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
@@ -594,7 +608,8 @@ function renderReply() {
 let sending = false;
 async function send() {
   const chat = S.view.chat;
-  const text = E.input.value.trim();
+  let text = E.input.value.trim();
+  text = fun.slash(text) ?? text;
   const files = S.pending;
   if (sending || (!text && !files.length)) return;
   sending = true;
@@ -706,7 +721,7 @@ function renderMessages() {
     if (c.done) {
       out.push(h('div', { class: 'intro' },
         h('h2', null, meta.type === 'dm' ? meta.name : '#' + meta.name),
-        h('p', null, meta.type === 'dm' ? `Hier beginnt deine Unterhaltung mit ${meta.name}.` + (c.list.length ? '' : ' Sag Hallo.') : `Hier beginnt der Kanal #${meta.name}.` + (c.list.length ? '' : ' Schreib die erste Nachricht.'))));
+        h('p', null, meta.type === 'dm' ? fun.dmStart(meta.name, !c.list.length) : fun.channelStart(meta.name, !c.list.length))));
     }
     let prev = null;
     for (const m of c.list) {
@@ -790,6 +805,7 @@ function renderFriends() {
   E.friendTabs = h('div', { class: 'tabs', role: 'tablist' });
   E.friendList = h('div', { class: 'friend-list' });
   E.body.replaceChildren(h('div', { class: 'friends' },
+    h('div', { class: 'hello' }, fun.greeting(S.me.display), h('small', null, 'Wer ist heute für Quatsch zu haben?')),
     h('form', {
       class: 'add-friend',
       onsubmit: async (e) => {
@@ -820,9 +836,9 @@ function renderFriendList() {
   }, label, key === 'requests' && badge(incoming))));
   const list = S.friendTab === 'requests' ? requests : S.friendTab === 'online' ? friends.filter((f) => f.u.status !== 'offline') : friends;
   const empty = {
-    online: 'Gerade ist niemand online.',
-    all: 'Du hast noch keine Freunde hinzugefügt. Gib oben einen Benutzernamen ein.',
-    requests: 'Keine offenen Anfragen.',
+    online: fun.emptyOnline(),
+    all: fun.emptyAll(),
+    requests: fun.emptyRequests(),
   }[S.friendTab];
   E.friendList.replaceChildren(...(list.length ? list.map(({ u, state }) => h('div', { class: 'friend' },
     avatar(u, 40, true),
@@ -1187,6 +1203,9 @@ function lookPage() {
     return el;
   };
   const motion = h('input', { type: 'checkbox', onchange: () => set('motion', motion.checked) });
+  const photo = h('input', { type: 'checkbox', onchange: () => set('photo', photo.checked) });
+  const veilVal = h('b');
+  const veilIn = rangeInput({ min: 40, max: 95, step: 1, value: prefs.veil, 'aria-label': 'Abdunklung über dem Foto', oninput: () => set('veil', Number(veilIn.value)) });
 
   function paint() {
     for (const b of themeBtns) radio(prefs.theme === b.dataset.key, b);
@@ -1200,6 +1219,10 @@ function lookPage() {
     sizeVal.textContent = prefs.msgSize + ' px' + (prefs.msgSize === D.msgSize ? ' · Standard' : '');
     for (const [el, key] of segs) for (const b of el.children) radio(prefs[key] === b.dataset.value, b);
     motion.checked = prefs.motion !== false;
+    photo.checked = prefs.photo !== false;
+    veilIn.value = prefs.veil;
+    veilIn.paint();
+    veilVal.textContent = prefs.veil + ' %';
   }
   paint();
 
@@ -1219,6 +1242,9 @@ function lookPage() {
     h('div', { class: 'look-row' }, h('span', null, 'Ecken', h('small', null, 'Wie rund Knöpfe, Fenster und Bilder sind.')),
       seg('corners', [['round', 'Rund'], ['soft', 'Dezent'], ['sharp', 'Eckig']], 'Ecken')),
     h('label', { class: 'check' }, motion, 'Weiche Animationen'),
+    h('h4', null, 'Hintergrundfoto'),
+    h('label', { class: 'check' }, photo, 'Foto im Hintergrund zeigen'),
+    h('label', { class: 'field range' }, h('span', null, 'Abdunklung', veilVal), veilIn),
     h('p', { class: 'sub' }, 'Sind in Windows die Animationseffekte ausgeschaltet, bewegt sich auch PeterCord nicht.'),
     h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => {
       for (const k of Object.keys(D)) prefs[k] = D[k];
@@ -1660,6 +1686,7 @@ function onEvent(m) {
           el.classList.add('new'); // nur live eintreffende Nachrichten blenden sanft ein, nicht der ganze Verlauf
           E.list.append(el);
           if (stick) { toBottom(); S.stick = true; }
+          if (fun.CELEBRATE.test(msg.content || '')) fun.confetti();
         }
       }
       if (msg.user !== S.me.id) {

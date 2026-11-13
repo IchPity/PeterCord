@@ -3,8 +3,8 @@
   "name": "petercord",
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
-  // Der Worker liefert zusätzlich die Web-Version der App aus (Ordner ../app).
-  "assets": { "directory": "../app", "binding": "ASSETS" },
+  // Der Worker liefert nur eine kleine Download-Seite aus (Ordner public). Die Oberfläche steckt in der Desktop-App.
+  "assets": { "directory": "./public", "binding": "ASSETS" },
   "durable_objects": { "bindings": [{ "name": "HUB", "class_name": "Hub" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }],
   // Eigene Fehlermeldungen landen im Log, einzelne Anfragen (wer wann was aufruft) aber nicht.

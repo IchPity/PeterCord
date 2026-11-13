@@ -49,9 +49,10 @@ dem Knopf **Jetzt aktualisieren**. Du musst nie wieder etwas herunterladen.
   Nachrichten. Ein roter Punkt am Symbol heißt: Da ist etwas Ungelesenes. Ganz beenden: Rechtsklick auf das Symbol → *Beenden*.
 - **Mit Windows starten:** *Einstellungen* (Regler-Symbol unten links) → *App* → Häkchen setzen.
 - **Aussehen anpassen:** *Einstellungen* → *Darstellung*: Farbschema (auch hell oder wie Windows), Akzentfarbe,
-  Schriftgröße und Abstand der Nachrichten, Ecken und Animationen.
+  Schriftgröße und Abstand der Nachrichten, Ecken, Animationen und das Hintergrundfoto.
+- **Quatsch:** Im Nachrichtenfeld gehen `/shrug`, `/tableflip`, `/unflip`, `/lenny`, `/konfetti`, `/würfel` und `/münze`. Eine Nachricht mit 🎉 lässt es regnen. Fünfmal aufs Logo klicken auch.
 - **Ruhe haben:** Klick unten links auf deinen Namen und stell den Status auf *Nicht stören* – dann bleibt alles still.
-- **Ohne Installation:** PeterCord läuft auch im Browser unter <https://petercord.hakwt.workers.dev>, zum Beispiel am Handy.
+- **Nur Windows:** Die Seite <https://petercord.hakwt.workers.dev> ist nur die Download-Seite. Chatten geht in der installierten App.
 - **Deinstallieren:** Windows-Einstellungen → Apps → PeterCord → Deinstallieren.
 
 ## Wenn etwas nicht klappt

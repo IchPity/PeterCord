@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>PeterCord herunterladen</title>
+  <meta name="description" content="PeterCord – der Chat für Freunde. Hier gibt es nur den Download.">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root { --accent: #f2d95c; --ink: #17150a; --text: #e8efe9; --dim: #b4c4bd; --panel: #14211f; --line: #2c4541; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font: 16px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; color: var(--text);
+      background: #1a0d12 url("kroko.jpg") center 30% / cover fixed no-repeat; min-height: 100vh; display: grid; place-items: center end; padding: 20px 7vw;
+    }
+    body::before { content: ""; position: fixed; inset: 0; background: radial-gradient(900px 600px at 50% 45%, rgb(13 23 22 / .25), rgb(13 23 22 / .75)); }
+    main {
+      position: relative; width: min(520px, 100%); padding: 34px 32px 26px; border: 1px solid var(--line); border-radius: 20px;
+      background: color-mix(in srgb, var(--panel) 78%, transparent); backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2);
+      box-shadow: 0 24px 70px -20px #000a; animation: rise .5s cubic-bezier(.2, .75, .25, 1);
+    }
+    .brand { display: flex; align-items: center; gap: 14px; font: 700 34px Bahnschrift, "DIN Alternate", "Segoe UI", sans-serif; font-stretch: 85%; }
+    .brand img { width: 48px; height: 48px; transition: transform .5s cubic-bezier(.2, .75, .25, 1); }
+    .brand img:hover { transform: rotate(-12deg) scale(1.1); }
+    .tag { color: var(--dim); font-style: italic; margin: 4px 0 22px; }
+    .btn {
+      display: block; text-align: center; text-decoration: none; background: var(--accent); color: var(--ink); font-weight: 700; font-size: 18px;
+      padding: 14px 18px; border-radius: 12px; transition: transform .16s, box-shadow .2s;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 28px -8px color-mix(in srgb, var(--accent) 70%, transparent); }
+    .btn:active { transform: scale(.98); }
+    .note { text-align: center; color: var(--dim); font-size: 13.5px; margin: 8px 0 22px; }
+    ol { margin: 0; padding-left: 22px; color: var(--dim); }
+    ol li { margin: 6px 0; }
+    ol b { color: var(--text); }
+    .foot { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .sticker {
+      position: fixed; left: 22px; bottom: 20px; transform: rotate(-3deg); background: #e8efe9; color: #14201e; padding: 6px 12px; border-radius: 6px;
+      font: 700 13px Bahnschrift, "Segoe UI", sans-serif; box-shadow: 0 8px 22px -6px #000a;
+    }
+    @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+    @media (max-width: 900px) { body { place-items: center; padding: 20px; } }
+    @media (max-width: 600px) { .sticker { display: none; } main { padding: 26px 22px 20px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand"><img src="icon.svg" alt="" width="48" height="48"><span>PeterCord</span></div>
+    <p class="tag" id="tag">Der Chat für Leute, die sowieso nur Quatsch schreiben.</p>
+    <a class="btn" href="https://github.com/IchPity/PeterCord/releases/latest" rel="noopener">⬇ PeterCord für Windows herunterladen</a>
+    <p class="note">Windows 10 und 11 · ca. 2 MB · aktualisiert sich selbst</p>
+    <ol>
+      <li><b>Herunterladen</b> und die Datei <code>…setup.exe</code> starten.</li>
+      <li><b>Konto erstellen</b> – den Zugangscode bekommst du von Peter.</li>
+      <li><b>Freunde hinzufügen</b>, quatschen, zocken, Konfetti werfen.</li>
+    </ol>
+    <div class="foot"><span>Direktnachrichten · Gruppen · Sprachchat · Bildschirm teilen</span><span>Nur für Freunde</span></div>
+  </main>
+  <div class="sticker">📸 Beweisfoto Nr. 1</div>
+  <script src="tag.js"></script>
+</body>
+</html>
